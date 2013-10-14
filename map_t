@@ -1,0 +1,2 @@
+#!/bin/sh
+map_x $util/t/10k.hosts

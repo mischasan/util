@@ -1,0 +1,21 @@
+#!/bin/sh
+#XXX: recognize and retain leading whitespace
+#XXX: add option to set awk -F\\t, for (hard)tab-delimited input.
+TMP=/tmp/tab.$$
+trap 'Q=$?; trap "" 0; rm -f $TMP; exit $Q' 0
+
+cat $* >$TMP
+awk '
+{   if (nf < NF) nf = NF
+    for (i = NF; i > 0; --i) {
+        if ($i ~ /^[+-]?[0-9.][0-9]*$/) num[i]=1
+        if (wid[i] < length($i)) wid[i] = length($i)
+    }
+}
+
+END {   for (i in wid) wid[i] = "%"(num[i]?"":"-")wid[i]"s"
+        while (getline <"'$TMP'") { 
+            for (i = 1; i <= nf; ++i) $i = sprintf(wid[i], $i)
+            sub(/  *$/, "", $NF); print
+        }
+}' $TMP

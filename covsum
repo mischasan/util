@@ -1,0 +1,47 @@
+#!/usr/bin/perl -w
+# Format the result of "gcov -bc" into a table of the form:
+#   "filename fns-called fc% lines l% jumps j% jumps-taken jt% calls-made cm%"
+# with a column heading line that begins with '#'.
+# Exits with nonzero status if coverage is less that 100%
+# gcov reports: [F]iles [L]ines [B]ranches [T]aken [C]alls
+
+my $RED = "\033[1;31m"; my $NORMAL = "\033[m";
+my %req = (B => 0, C => 0, F => 100, L => 80, T => 90);
+my $req = join ' ', map {"$_:$req{$_}"} qw(F L T);
+my ($nf, %x, $f, $ret, %bad) = 0;
+sub add {
+    my ($type, $count, $pct) = @_;
+    my $fail = $pct < $req{$type};
+    $x{$f}[index('FLBTC',$type)] = sprintf('%5d %s%3d%s', $count,
+                                            ($fail ? $RED : ''),
+                                            int($_[2] + 0.5),
+                                            ($fail ? $NORMAL : ''));
+}
+while (<>) {
+    $f = $1 if m{^File '(?:.*/)?(.*)'} && !m{/usr/[/\w]*include};
+    next if !$f;
+    if (1 == length) {  # empty line after ":creating '...gcov'"
+        open my $fh, "$f.gcov" or die "covsum: cannot find '$f.gcov'\n";
+        my %f = ();
+        do { my @x = split; $f{$x[1]} += $x[3] } for grep m{^function}, <$fh>; 
+        my $n = scalar keys %f;
+        my $pct = $n ? (grep {$f{$_}} keys %f) * 100 / $n : 100;
+        add('F', $n, $pct);
+        $bad{$f} = 1 if $pct < $req{F};
+        $f = ''; ++$nf;
+    } elsif (m{^([LBTC]).*:([.0-9]*)% of (\d+)} ) {
+        add($1, $3, $2);
+        $bad{$f} = 1 if $2 < $req{$1};
+    } elsif (m{^No branch}) {
+        add('B', 0, 100); add('T', 0, 100);
+    } elsif (m{^No calls}) {
+        add('C', 0, 100);
+    }
+}
+
+$x{'#File'} = ['Funcs   % Lines   % Jumps   % Taken   % Calls   %'];
+my $wid = 5; for (map {length} keys %x) { $wid = $_ if $wid < $_; }
+printf("%-${wid}s %s\n", $_, "@{$x{$_}}") for sort grep {/./} keys %x;
+my $bad = scalar keys %bad;
+print "Coverage less than req'd ($req) in $bad/$nf files\n" if $bad;
+exit $bad;

@@ -1,0 +1,3 @@
+#!/bin/sh
+cd $util
+./fnv_x t/greek

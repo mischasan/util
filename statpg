@@ -1,0 +1,8 @@
+#!/bin/sh
+awk '
+/^2006/ { duration=$8; sub(/.*ms  statement: /, ""); gsub(/[0-9][0-9][0-9]*/, "#"); count[$0]++; duran[$0]+=duration }
+END { 
+   printf "%-s %-8s %-8s %s\n", "DO", "ELAPSED", "E/DO", "%CMD" | "cat >&2"
+   for (cmd in count) if (duran[cmd]>1000) printf "%8d %8d %8d %s\n", count[cmd], int(duran[cmd]/1000), int(duran[cmd]/count[cmd]/1000), cmd }
+' $* \
+| sort -nrk2

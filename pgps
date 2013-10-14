@@ -1,0 +1,151 @@
+#!/usr/bin/env perl
+# REVISIT:
+# - make lock info optional?
+# - make ssh ... ps optional?
+# - implement (-x) pattern exclusion!
+#--------------------------------------------------------------------
+use strict;
+use warnings;
+use Data::Dump qw(dump);
+use DBI;
+use Getopt::Std;
+
+my $PS_CMD  = 'ps -w -opid,pcpu,vsz,rss,state,start,time,command';
+my $SSH_CMD = 'ssh -n -x -oConnectTimeout=3 -oLogLevel=ERROR -oBatchMode=yes -oStrictHostKeyChecking=no';
+
+die <<'__DIE__' if @ARGV and $ARGV[0] =~ m{^(help|-h|-\?)};
+USAGE
+    pgps [-a] [-x patt]
+
+OPTIONS
+    -a	    List all processes, including <IDLE> ones.
+    -xpatt  Exclude processes whose client ps args match 'patt'.
+
+DESCRIPTION
+    "pgps" lists as much information about db clients as it can
+using pg-tables, lsof, sockstat, netstat and ssh. "pgps -a" lists 
+all clients, including those in the <IDLE> state.
+Each displayed entry shows:
+
+    (client ip addr, for remote clients)
+    client "ps" info
+      backend "ps" info
+	pg_stat query time and command
+	lock info
+
+EXAMPLE
+    $ pgps
+    PID     %CPU   VSZ   RSS STAT STARTED      TIME COMMAND
+    5961     0.0  3704  2584 T     2:22PM   0:00.01 psql
+     5962    0.0 19088  7304 Ss    2:22PM   0:00.01 postgres: pmx pmx_quarantine [local] idle in transaction (postgres)
+	    qtime=00:00:04; <IDLE> in transaction
+	    granted m_reason RowExclusive
+	    granted pk_m_reason RowExclusive
+__DIE__
+
+my %opt;
+getopts('ax:' => \%opt) or die <<'__DIE__';
+pgps: @ARGV: invalid options; use 'pgps -?' for usage.
+__DIE__
+
+my $unidle = $opt{a} ? 'true' : "current_query != '<IDLE>'";
+
+my $dbh = DBI->connect('dbi:Pg(RaiseError=1):');
+my %pg = map {$_->[0] => "qtime=$_->[1]; $_->[2]"}
+    @{$dbh->selectall_arrayref(<<"__SQL__")};
+	SELECT  procpid, date_trunc('secs', now() - query_start), 
+		replace(btrim(current_query), '\n', '\n\t')
+	FROM    pg_stat_activity
+	WHERE   $unidle AND procpid != pg_backend_pid()
+__SQL__
+
+my %locks;
+push @{$locks{shift @$_}}, $_ for @{$dbh->selectall_arrayref(<<"__SQL__")};
+    SELECT	pid, 
+		CASE WHEN granted THEN 'granted' ELSE 'WAITING' END,
+		COALESCE(relname, relation::text), 
+		replace(mode, 'Lock', '')
+    FROM	pg_locks
+    LEFT JOIN	pg_class ON oid = relation
+    WHERE	(relname IS NULL or relname NOT LIKE 'pg[_]%')
+--    AND NOT (pg_locks.granted AND pg_locks."mode" ~~ '%AccessShare%')
+__SQL__
+
+$dbh->disconnect;
+
+my $pgport = $ENV{PGPORT} || 5432;
+my (%srvcln, %remcln);
+
+# LSOF is accurate, and covers case where LOCAL clients open db connections
+#   long after they start.
+# SOCKSTAT handles all cases except the above, and it needs no root priv.
+
+if (my @lsof = qx{lsof -n -U -i TCP:postgresql 2>/dev/null}) {
+    my %srvrem;
+    for (@lsof) {
+	my @x = split;
+	if ($x[7] eq 'TCP') {
+	    if ($x[8] =~ m{(.*)->.*:postgresql}) {
+		$remcln{$1} = $x[1];
+	    } elsif ($x[8] =~ m{.*:postgresql->(.*)}) {
+		$srvrem{$x[1]} = $1;
+	    }
+	} elsif ($x[7] =~ m{^->(0x[0-9a-f]{8})$}) {
+	    $remcln{$1} = $x[1];
+	} elsif (exists $pg{$x[1]}) {
+	    $srvrem{$x[1]} = $x[5];
+	}
+    }
+
+    %srvcln = map {$_ => $remcln{$srvrem{$_}} || $srvrem{$_}} keys %srvrem;
+
+} else {
+    my @clnsrv;
+    for (qx{sockstat -cu4}) {
+	chomp; my @x = split;
+	if (m{ tcp.*:$pgport })	    { $srvcln{$x[2]} = $x[6] }
+	elsif (m{ tcp.*:$pgport$})	    { $remcln{$x[5]} = $x[2] }
+	elsif (m{ stream .*\.$pgport$}) { push @clnsrv, $x[2] }
+    }
+
+    my %clnsrv = sort @clnsrv;
+    $srvcln{$_} = $remcln{$srvcln{$_}} for grep {$remcln{$srvcln{$_}}} keys %srvcln;
+    $srvcln{$clnsrv{$_}} = $_ for keys %clnsrv;
+}
+
+my %clnsrv = reverse %srvcln;
+
+my %ps = map {@$_}
+	    grep {$srvcln{$_->[0]} or $clnsrv{$_->[0]} or $_->[0] eq 'PID'}
+		map {chomp; s{^\s+}{}; [split / /,$_,2]} qx{$PS_CMD -ax};
+
+#TODO: batch ssh commands per host, instead of one ssh cmd per connection.
+print "PID\t".(delete $ps{PID})."\n" if scalar keys %clnsrv;
+my $sep = '';
+for my $cln (keys %clnsrv) {
+    my $srv = $clnsrv{$cln};
+    next if !$pg{$srv};	    # because of the IDLE filter.
+    my $rem = $srvcln{$srv};
+    if (!$ps{$cln} and $rem =~ m{(.*):}) {
+	my $cmd = qq{$SSH_CMD $1 '(sockstat -c || netstat -np) |
+		     awk '\\''!/ $rem /{next}; {sub("/.*",""); print /^tcp /?\$7:\$3}'\\'' |
+		     xargs $PS_CMD | tail +2' 2>&-};
+	chomp(my $ps = qx{$cmd});
+	$cln = "($cln)";
+	$cln .= "\n$1" if $ps =~ s{^\s*(\d+)(.*)}{$2};
+	$ps{$cln} = $ps;
+    }
+    print "$sep$cln\t$ps{$cln}\n $srv\t$ps{$srv}\n\t$pg{$srv}\n";
+    if ($locks{$srv}) {
+        # "grep" eliminates locks on anonymous objects:
+	print "\t@$_\n" for sort {$a->[0] cmp $b->[0]} grep {$_->[1]} @{$locks{$srv}};
+    }
+    $sep = "\n";
+}
+__END__
+FREEBSD sockstat -c:
+mischa   psql       33647 4  tcp4   192.168.98.37:58574   192.168.98.42:5432
+mischa   psql       5816  4  tcp4   192.168.98.37:55577   192.168.98.42:5432
+LINUX netstat -p
+# netstat -np | grep 5432
+tcp        0      0 192.168.99.160:33473    192.168.98.42:5432      ESTABLISHED 29221/psql

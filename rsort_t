@@ -1,0 +1,24 @@
+#!/bin/sh
+# Avoid edge case where input is all done in one insertion-sort!
+rsort_x /dev/stdin <<__HERE__
+one
+two
+three
+four
+five
+six
+seven
+eight
+nine
+ten
+eleven
+twelve
+thirteen
+fourteen
+fifteen
+sixteen
+seventeen
+eighteen
+nineteen
+twenty
+__HERE__

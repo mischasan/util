@@ -1,0 +1,208 @@
+#!/usr/bin/env perl
+# The "total time" for a command should be the total time
+#   when any process was active.
+
+use strict;
+use warnings;
+
+use Data::Dump	qw(dump);
+use Date::Parse	qw(str2time);
+use Getopt::Std;
+use List::Util	qw(sum);
+use POSIX	qw(strftime);
+
+my %opts;
+
+die <<'__USAGE__' if !@ARGV;
+USAGE:	pspace <logfile> [poll-secs] &
+
+"pspace" tracks process CPU/MEM usage, grouped by 'command',
+
+To dump (append) aggregate stats to <logfile>: "pkill -1 -f pspace".
+To dump and reset stats: "pkill -2 -f pspace".
+
+Default poll-secs: 10.
+
+OUTPUT (example)
+@ 2008-09-10T12:34:56
+=PIDS TOT CPU    RSS ~dev  STATES             | COMMAND
+    6  53   0   4248 1696  S:50,I:39,R:11     | autovac
+
+Lines always begin with [@= ].
+
+PIDS:	    Total process count, including running processes.
+TOT:	    Total wall time while at least one process has been active.
+CPU:	    Total CPU seconds across all processes for this command.
+RSS:	    Average sampled RSS (KB).
+dev:	    Standard deviation of sampled RSS.
+STATES:	    See "man ps". Numbers are % distribution of samples.
+COMMAND:    "Normalized" command string. shell and dirpath are removed.
+__USAGE__
+
+my $LOGFILE = $ARGV[0] || '/tmp/pspace.log';
+my $CYCSECS = $ARGV[1] || 10;
+
+sub _log {
+    open my $log, ">>$LOGFILE" or die "pspace: cannot open $LOGFILE: $!\n";
+    print $log "$_\n" for @_;
+}
+
+unlink $LOGFILE;
+_log("# ".strftime("%FT%T", localtime)." start $$");
+
+my %proc; #   "pid start" =>
+#   {begun}   initial time (epoch)
+#   {ended}   latest time (epoch)
+#   {alpha}   initial cpu time
+#   {omega}   latest cpu time
+#   {cmd}     normalized cmd string (key of %cmd)
+
+my %cmd; #  command =>
+#   {count}   number of processes no longer running.
+#   {active}  number of processes currently running.
+#   {rssv}    [sum min max sumsq]
+#   {states}  {state => count, ...}
+#   {cputime} total of (omega-alpha) for all terminated processes.
+#   {begun}   time at which active went from 0 to 1.
+#   {ended}   time at which active went to 0.
+
+$SIG{HUP}  = sub { dump_stats(); };
+$SIG{INT}  = sub { dump_stats(); _log(dump(\%proc)); %proc = (); %cmd = (); };
+
+while (1) {
+    my $time = time;
+    # -S: sum exited children into parent.
+    my $init = !scalar keys %cmd;
+    #for my $x (qx{ps -Sawwx -olstart,pid,rss,state,time,command}) {
+    for my $x (qx{ps --no-heading -Awwolstart,pid,ppid,rss,state,time,command}) {
+	#'Thu Sep 11 21:40:18 2008 '
+	my $start = str2time(substr($x,0,25,''), 'UTC');
+        $x =~ s{^\s+}{};
+	my ($pid, $ppid, $rss, $state, $cputime, $command) = split(/\s+/, $x, 6);
+	next if $ppid < 3 or $command =~ m{^\[};
+	# filter on $command
+
+	my $key = "$pid $start";
+	if (!$proc{$key}) {
+	    chomp($x);
+	    $_ = $command;
+	    s{^\S+/}{};
+#	    next if m{^(?:-[ba]*sh | cron | devd | dhclient | getty | init | login | postmaster:.*\sprocess\s | ps | sh | ssh | sshd | su | -su | sudo | <defunct> )\b}x;
+
+#	    s{^nginx:.*}{nginx};
+#	    s{^(?:anvil | bounce | cleanup | master | pickup | qmgr | scache | smtp | smtpd | tlsmgr | trivial-rewrite | verify)\b.*}{postfix}x;
+#	    s{postmaster.* \(postgres\)}{postgres};
+
+	    s{^exec\s+}{};
+	    s{^[ba]*sh\s+(?:-[a-z]*c)?\s*}{};
+	    s{^perl\s+(?:-w)\s*}{};
+	    s{^perl\s+([^-])}{$1};
+	    s{run-one (?:-[it]\s+\S+\s+)*}{};
+	    s{su - \w+ -c\s+}{};
+            s{sudo\s+}{};
+	    s{^/\S+/}{};
+	    s{^\S+/}{};
+	    s{\s+\(perl-static\)$}{};
+	    s{^\s+}{};
+	    next if m{^(?:<defunct>|grep|pgrep|ps|pspace|sed|sleep|sshd:|tail|vi|vim|wc|uniq|bash -l|[-ba]*sh*$)};
+	    s{\s+$}{};
+            s{ [12]?>[>&]?\s*\S+}{};
+	    s{(\d{5,})}{"#" x length($1)}eg;
+	    s{20\d\d[/-][01]\d[/-][0-3]\d}{YYYY-MM-DD}g;
+            s{\d\d:\d\d:\d\d-\d\d\d\d}{hh:mm:ss-tzof}g;
+            s{\d\d:\d\d:\d\d}{hh:mm:ss}g;
+	    $proc{$key} = $init ? { begun => $time, alpha => $cputime, cmd => $_ }
+				: { begun => $start, alpha => 0, cmd => $_ };
+	    $cmd{$_} ||= { count => 0, active => 0, states => {},
+			    rssv => [0, $rss, $rss, 0, 0] };
+	    $cmd{$_}{begun} = $proc{$key}{begun} if !$cmd{$_}{active}++;
+	}
+
+	my $proc = $proc{$key};
+	$proc->{ended} = $time;
+	$proc->{omega} = $cputime;
+
+	my $cmd = $cmd{$proc->{cmd}};
+	{ no warnings; $cmd->{states}{substr($state,0,1)}++; }
+	my $rssv = $cmd->{rssv};
+	$rssv->[0] += $rss;
+	$rssv->[1] = $rss if $rssv->[1] > $rss;
+	$rssv->[2] = $rss if $rssv->[2] < $rss;
+	$rssv->[3] += $rss*$rss;
+	$rssv->[4] += 1.0/$rss if $rss;
+	$rssv->[5]++;
+    }
+
+    for (grep {$proc{$_}{ended} < $time} keys %proc) {
+		#and $proc{$_}{ended} > $proc{$_}{begun}} keys %proc) {
+	my $info = delete $proc{$_};
+	my $c = $cmd{$info->{cmd}};
+	$c->{count}++;
+	$c->{time}	+= $info->{ended} - $info->{begun} if !--$c->{active};
+	$c->{cputime}	+= hms2secs($info->{omega}) - hms2secs($info->{alpha});
+    }
+
+    sleep($CYCSECS);
+}
+
+sub hms2secs {	# e.g. hms2secs("01:35:59") returns 5759 (seconds)
+    my $x = 0;
+    $x = $x * 60 + $_ for split(/:/, $_[0]);
+    return $x;
+}
+
+sub dump_stats {
+
+    my $time = time;
+    my $asof = strftime("%FT%T", localtime($time));
+
+    # Collect time stats for still-running processes:
+    $_->{c} = $_->{cputime} || 0 for values %cmd;
+    for (grep {$proc{$_}->{ended} > $proc{$_}->{begun}} keys %proc) {
+	my $info = $proc{$_};
+	$cmd{$info->{cmd}}{c}
+	    += hms2secs($info->{omega}) - hms2secs($info->{alpha});
+    }
+    return if !scalar keys %cmd;
+
+    my @out;
+    for my $command (sort keys %cmd) {
+	my $cmd = $cmd{$command};
+	no warnings;
+	my $cputime = int($cmd->{c} + 0.5);
+
+	my ($sum, $min, $max, $ssq, $sin, $cnt) = @{$cmd->{rssv}};
+	my $avg = int($sum / $cnt);
+	my $dev = int(sqrt(abs($ssq - $sum*$sum/$cnt)/$cnt));
+
+	my $states = $cmd->{states};
+	my $tot = sum values %$states;
+	$states = join ',',
+		    grep {!/:0$/}
+			map {"$_->[0]:" . int(($_->[1] * 100 / $tot) + 0.5)}
+			    sort {-($a->[1] <=> $b->[1])}
+				map {[$_ => $states->{$_}]}
+				    keys %$states;
+	$states =~ s{:100.*}{};
+	my $totime = $cmd->{time};
+	$totime += $time - $cmd->{begun} if $cmd->{active};
+	push @out, [$cmd->{count}+$cmd->{active}, $totime, $cputime,
+		    $avg, $dev, $states, $command];
+    }
+
+    my @hdg = qw(PIDS TOT CPU RSS ~dev STATES COMMAND);
+    my @wid = map {length} @hdg;
+    for (@out[1..$#out]) {
+	my @len = map {length} @$_;
+	for (0..5) {
+	    $wid[$_] = $len[$_] if $wid[$_] < $len[$_];
+	}
+    }
+
+    $wid[0]++; $wid[4] = -$wid[4]; $wid[5] = -$wid[5];
+    my $fmt = join(' ', map {"%${_}s"} @wid[0..5])." | %s";
+    # Output is sorted by descending CPUTIME
+    _log("@ $asof\n=".substr(sprintf($fmt,@hdg),1),
+	 map {sprintf $fmt, @$_}
+	    sort {$b->[2] <=> $a->[2]} @out);
+}

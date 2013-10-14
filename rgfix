@@ -1,0 +1,46 @@
+# This script converts one of Sanmayce's railgun routines into
+# a style of code I can deal with.
+
+sed -e '
+    /^Railgun.*performance:/d
+    /^Boyer.*performance:/d
+    s/  *$//
+    /^char.*Railgun_Quadruplet/,${
+        /Railgun_Quadruplet/a\
+    uint8_t *tgt = (uint8_t*)target, uint8_t *pat = (uint8_t*)pattern;
+    }
+    s/pbTarget/tgt/g; s/cbTarget/tgtlen/g
+    s/pbPattern/pat/g; s/cbPattern/patlen/g
+    s/\<register\> *//g
+    s/unsigned char/uint8_t/g
+    s/unsigned short/uint16_t/g
+    s/unsigned long/uint32_t/g
+    s/unsigned int\>/uint32_t/g
+    s/\<signed long/int32_t/g
+    s|Railgunhits++; *//return|return |
+    s/return(NULL)/return NULL/g
+    s/\(bm_bc.*\[\)pat/\1(uint8_t)pat/
+    s/2166136261\>/&U/
+    s/(char *\*)/(uint8_t*)/g
+    /if (ulHashPattern ==/s/(char *\*/(uint8_t*/g
+    s/(Gulliver \([!=<>]* patlen\)/((int)Gulliver \1/g
+    s/return *(\(.*\));$/return \1;/
+    s/return tgt/return (char*)tgt/
+    s/\*(\([gapt]*\) *+ *\([0-9]\))/\1[\2]/g
+    s/\*(\([gapt]*\) *- *\([0-9]\))/\1[-\2]/g
+    s/^Railgun_Quadruplet_*\([0-9][a-z]\).*)$/railgun\1(char *target, int tgtlen, char *pattern, int patlen)/
+    s/(char)/(uint8_t)/g
+    s/(char *\*)/(uint8_t*)/g
+    s/(\*(uint8_t *\*)(\([gapt]\{3\}\) *- *\([0-9_a-z]\+\)))/\1[-\2]/g
+    s/(\*(uint8_t *\*)(\([gapt]\{3\}\) *+ *\([0-9_a-z]\+\)))/\1[\2]/g
+    s/\*(uint8_t *\*)(\([gapt]\{3\}\) *- *\([0-9_a-z]\+\))/\1[-\2]/g
+    s/\*(uint8_t *\*)(\([gapt]\{3\}\) *+ *\([0-9_a-z]\+\))/\1[\2]/g
+    s/(\*(uint8_t *\*)(pat))/*pat/g
+    s/\*(uint8_t *\*)(pat)/*pat/g
+    s/\*(\([gapt]{3}\) *+ *(\([-+1-9]\+\)))/\1[\2]/g
+    s/\*(\([gapt]{3}\) *+ *(\([^)]*\)))/\1[\2]/g
+    s/AdvanceHopperGrass/skip/g
+    s/ulHashTarget/tgtwin/g
+    s/ulHashPattern/patend/g
+    s/SINGLET/pat0/g
+' $*

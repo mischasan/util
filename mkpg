@@ -1,0 +1,113 @@
+#!/bin/sh
+# mkpg: configure/compile/install a version of postgres.
+# NOTES
+#   Postgres compiles its configured "install" directory 
+#   (aka --prefix) into its binaries. 
+#-------------------------------------------------------------------
+Do()  { echo >&2 "+ $*"; $EVAL "$*"; }
+
+SRCBASE=${SRCBASE:-$HOME/var}
+RUNBASE=${RUNBASE:-$HOME/pgsql}
+
+if [ $# = 0 ]; then
+    versions=$(ls -d $SRCBASE/postgresql-[7-9]*[.0-9][0-9] $RUNBASE/[7-9]*[0-9] \
+                | sed 's|.*/[postgresql-]*|	|' | sort -u)
+    confiles=$(cd $SRCBASE; ls postgresql.conf-[789].* | sed 's/^/	/')
+    cat >&2 <<__CAT__
+USAGE: mkpg [-n] <version> - build and install postgres version.
+
+"mkpg" will ...
+	source from:	ftp*.ca.postgresql.org
+	build in:	\$SRCBASE/postgresql-<version>/
+	install into:	\$RUNBASE/<version>/
+	symlinked to:  	\$RUNBASE/curr
+
+SRCBASE currently contains versions:
+$versions
+... and  custom postgresql.conf files:
+$confiles
+
+ENVIRONMENT
+    SRCBASE=$SRCBASE
+    RUNBASE=$RUNBASE
+    MIRRORS='$MIRRORS'
+ 
+SEE ALSO
+    pg      - manage a pg server (create/destroy/start/stop/status ...)
+    pgconf  - manage pg conf settings, in both db and postgresql.conf
+__CAT__
+    exit 2
+fi
+
+if [ "$1" = -n ]; then EVAL=:; shift; else EVAL=eval; fi
+
+VER=$1
+SRCDIR=$SRCBASE/postgresql-$VER
+RUNDIR=$RUNBASE/$VER
+CURRUN=$RUNBASE/curr
+
+case $VER in
+7.*) opt_config=                runlib=$RUNDIR/lib/ ;;
+[89].*) opt_config=--with-openssl  runlib= ;;
+esac
+
+if which gmake >&-; then MAKE=gmake; else MAKE=make; fi
+set -e
+
+#MIRROR=ftp://www.postgresql.org/ftp/source/v
+#MIRROR=ftp://ftp4.ca.postgresql.org/pub/postgresql/source/v
+#MIRROR='ftp4.ca.postgresql.org/pub/postgresql ftp-archives.postgresql.org/pub'
+#MIRROR=http://wwwmaster.postgresql.org/redir/333/f/source/
+#MIRROR=http://wwwmaster.postgresql.org/download/mirrors-ftp/source/v
+MIRROR=ftp5.ca.postgresql.org/mirrors/postgresql/v
+MIRROR=ftp5.ca.postgresql.org/mirrors/postgresql/source/v
+MIRROR=http://ftp.postgresql.org/pub/source/v
+# plpgsql.so is the last file installed by "gmake install":
+if [ ! -s $RUNDIR/lib/plpgsql.so ]; then
+    if [ ! -d $SRCBASE/postgresql-$VER ]; then
+        Do cd $SRCBASE
+        [ -f postgresql-$VER.tar.bz2 ] \
+	|| Do wget -nv --tries=1 $MIRROR$VER/postgresql-$VER.tar.bz2\
+	|| ! echo >&2 'mkpg: unable to retrieve source tarball from postgresql.org ftp site'
+
+        Do tar -xjf postgresql-$VER.tar.bz2
+    fi
+
+    Do cd $SRCDIR
+    if [ ! -s $SRCDIR/GNUmakefile ]; then
+        Do ./configure --prefix=$RUNDIR --quiet --disable-rpath --without-readline --without-zlib $opt_config
+        #Do ./configure --prefix=$RUNDIR --quiet --disable-rpath --with-readline $opt_config
+    fi
+
+    #XXX egrep masks gmake exit status :-(
+    test -z "$DESTDIR" || Do unset DESTDIR
+    Do $MAKE | egrep -v '^gmake|^ (Entering|Leaving|Nothing|is up to) ' >&2 ||:
+    Do $MAKE install | egrep -v '^gmake|^ (Entering|Leaving|Nothing|is up to) ' >&2 ||:
+fi
+
+# Ensure symlink from $RUNDIR to $CURRUN
+Do "rm -rf $CURRUN"
+Do "ln -fs $RUNDIR $CURRUN"
+
+OLD=$(which postgres)
+case "$OLD" in 
+$CURRUN/bin/postgres|$RUNDIR/bin/postgres) ;;
+*/postgres)
+    echo "#NOTE: Put $CURRUN/bin ahead of ${OLD%/postgres} in PATH" ;;
+*)  echo "Add $CURRUN/bin to PATH"
+esac >&2
+
+case :$LD_LIBRARY_PATH: in *:$CURRUN/lib:*) ;;
+*) echo "Add $CURRUN/lib to LD_LIBRARY_PATH";
+esac >&2
+
+# Copy the best PMX postgresql.conf match to $VER, into ~/pg$VER
+cd $SRCBASE
+pgconf=$(ls postgresql.conf-$VER* 2>&- | head -1)
+test -f "$pgconf" || pgconf=$(ls -r postgresql.conf-*| awk '"postgresql.conf-'$VER'" ~ $1' | head -1)
+if [ ! -f "$pgconf" ]
+then 	echo >&2 "No postgresql.conf-<version> available to be $RUNDIR/share/postgresql.conf" ||:
+elif ! cmp -s $pgconf $RUNDIR/share/postgresql.conf
+then 	Do ln -fs $SRCBASE/$pgconf $RUNDIR/share/postgresql.conf
+fi
+#REVISIT: do the same for pg_hba.conf

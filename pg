@@ -1,0 +1,854 @@
+#!/usr/bin/env perl
+# NOTES
+# "pg" presumes that it can run "lsof -p<pid>" and "lsof <usocket>".
+#
+# TODO
+# - Currently, ssh...ps... is iffy because it uses the local machine's
+#   idea of "all processes" (freebsd => -ax, linux => -e).
+# + only echo commands with "-n|--noexec" or "-v|--verbose" flags.
+# ! If postgresql.conf is configured to log to syslog, the "start" test
+#   doesn't work. 
+# - Convert pgconf body to a testable (!) Perl package; use it here.
+# - "pg list" includes PG servers running in FreeBSD jails;
+#   however, nothing else works with those servers, which behave
+#   as if they were installed on another machine.
+#
+# Different info appears in different files:
+# $logfile: (as determined by pg rotation)
+#   LOG:  database system is ready
+# or
+#   FATAL:  the database system is starting up
+#       - ignore this "FATAL", wait for something else
+# or
+# $LOGFILE:
+#   FATAL:  database files are incompatible with server
+#   DETAIL:  The data directory was initialized by Postgres <other version>
+# or
+#   PANIC:  could not locate a valid checkpoint record
+#       - even worse
+#   LOG:  aborting startup due to startup process failure
+#
+# NOTE:
+#   This assumes that postgres is configured for the default location
+#   of Unix sockets (qv $SOCKFILES)
+#--------------------------------------------------------------------
+
+use strict;
+use warnings;
+
+use Cwd			qw(realpath);
+use DBI;
+use Getopt::Long	qw(GetOptions);
+use POSIX		qw(strftime :sys_wait_h);
+
+sub _cd;
+sub _env;
+sub _xeq;
+
+my $PS = $^O eq 'freebsd' ? 'ps -axo' : $^O eq 'linux' ? 'ps -eo' : die("$^O: unknown OS!");
+my $SOCKFILES = '{/tmp,/var/run/postgresql}/.s.PGSQL.*';
+
+# Diagnostics in case stop decides it needs to KILLALL:
+my ($SOCKSTAT, $PSINFO, $USOCKS, $PSRAW) = ('', '', '', '');
+
+my ($help, $quiet, $noexec, $echo_sql) = (0,0,0,'');
+
+GetOptions( 'e'		=> \$echo_sql,
+	    'h|?|help'	=> \$help,
+	    'n|noexec'	=> \$noexec,
+	    'q|quiet'	=> \$quiet);
+$echo_sql &&= 'e';
+
+my ($revision, $pgdata, $pgdir, $pgpid, $shmid, $shmkey);
+my %portpid;    # maps {pgport => pid}
+my %portinfo;   # maps {pgport => [shmid,pgver,pgdata]}
+my $ssl;	# set by check_init, used by init.
+
+my $action = $help ? 'help' : $ARGV[0];
+
+die <<'__DIE__' if !$action;
+pg: manage postgres server(s) on localhost.
+For more info, use:   'pg help'
+__DIE__
+
+help() if $action eq 'help';
+
+$ENV{$_} ||= '' for qw( CFGDIR LD_LIBRARY_PATH LOGDIR LOGFILE
+			PGHOST PGOPTS PGPORT PGUSER);
+
+die "pg: \$PGHOST must not be set\n"
+    if $ENV{PGHOST} !~ /^(|localhost)$/;
+
+$ENV{PGPORT} ||= 5432;  # NOT _env() because not needed in env for psql.
+$ENV{PGUSER} ||= getpwuid($>);
+$ENV{PGDATABASE} ||= $ENV{PGUSER};
+_state();
+
+if ($action =~ m{^(create|destroy|init|reload|restart|start|up)$}) {
+    my $portdata = $portinfo{$ENV{PGPORT}}->[2] || '';
+    if ($ENV{PGDATA} and $portdata) {
+	my $pgdata = realpath($ENV{PGDATA});
+	die <<"__DIE__" if realpath($portdata) ne realpath($pgdata);
+pg $action: \$PGDATA does not match that of the server at PGPORT=$ENV{PGPORT}; q.v. "pg env" and "pg list"
+__DIE__
+    }
+
+    _env(PGDATA => $portdata) if !$ENV{PGDATA};
+    die "pg: \$PGDATA must be set\n" if !$ENV{PGDATA};
+}
+
+my ($cfgdir) = grep {-d} ("$ENV{CFGDIR}/$ENV{PGDATABASE}", $ENV{CFGDIR});
+
+my %CMD = (
+    create     => sub { check_init(); create(); },
+    destroy    => sub { destroy(); },
+    disk       => sub { disk(); },
+    env        => sub { env(); },
+    init       => sub { check_init(); init(); },
+    list       => sub { list(); },
+    locks      => sub { locks(); },
+    procs      => sub { procs(); },
+    reload     => sub { _xeq 'pg_ctl reload -s'; },
+    restart    => sub { stop(0); check_start(); start(); },
+   'restart!'  => sub { stop(1); check_start(); start(); },
+    revision   => sub { print "$revision\n"; },
+    start      => sub { check_start(); start(); },
+    stats      => sub { stats(); },
+    status     => sub { exit system 'pg_ctl status'; },
+    stop       => sub { stop(0); },
+   'stop!'     => sub { stop(1); },
+    up         => sub { exit !up() },
+    version    => sub { (my $v = $revision) =~ s{\.[0-9]+$}{}; print "$v\n"; },
+);
+
+die "pg $action? Unknown action\nUse:   'pg help' for usage\n"
+   if !exists $CMD{$action}; 
+
+$CMD{$action}();
+exit;
+
+#----------------------------------------------------------------
+sub create {
+    die "pg $action: \$CFGDIR is not set\n"
+	if !$ENV{CFGDIR};
+    die "pg $action: \$PGDATABASE is not set\n"
+	if !$ENV{PGDATABASE};
+    my @schemas = grep {!/information_schema/} glob "$ENV{CFGDIR}/*schema.sql";
+    die "pg $action: \$CFGDIR contains no *schema.sql files\n"
+	if !@schemas;
+
+    init();
+    _xeq "createdb $ENV{PGDATABASE} 2>/dev/null";
+    _xeq "psql -qc checkpoint template1";
+
+    # Apply the public schema script (if any) first.
+    # 'public' schema is the only one without 'create schema'.
+
+    my %schema = map {split /:/} qx{egrep -cHi create.schema *schema.sql};
+    for my $sql (sort {$schema{$a} <=> $schema{$b}} keys %schema) {
+        $sql =~ s/:.*//m;
+
+        chomp $sql;
+	_xeq "psql -${echo_sql}f $sql".($echo_sql ? '' : ' >/dev/null');
+    }
+}
+
+sub destroy { stop(1); _xeq "rm -rf $ENV{PGDATA}/*"; }
+
+sub disk {
+
+    my $dbh = DBI->connect("dbi:Pg:") or return;
+    my $pgdata;
+    if ($dbh->{pg_server_version} >= 80000) {
+        ($pgdata) = @{$dbh->selectrow_arrayref("SHOW data_directory")};
+        if (!$ENV{PGDATA}) {
+            warn "# PGDATA=$pgdata\n";
+        } elsif ($ENV{PGDATA} ne $pgdata) {
+            warn "Warning: \$PGDATA does not match server: $pgdata\n"
+        }
+    } elsif ($ENV{PGDATA}) {
+        $pgdata = $ENV{PGDATA}; # NOTE: this may be a symlink.
+    } else {
+        die "pgdisk: requires \$PGDATA\n";
+    }
+
+    my ($dbdir) = $dbh->selectrow_array(<<"__SQL__");
+        SELECT oid FROM pg_database WHERE datname = current_database()
+__SQL__
+
+    $dbdir = "$pgdata/base/$dbdir";
+    chdir "$dbdir" or die "Cannot chdir $dbdir: $@\n";
+
+    my %size;
+    for (glob("[1-9]*")) {
+        /^([^.]*)/;     # Sum up sizes for "xyz.1, "xyz.2", "xyz.3" into "xyz".
+        $size{$1} += (stat)[12]/2;  # stat() returns filesize in .5KB units.
+    }
+
+    my %index_oids;
+    push @{$index_oids{$_->[0]}}, $_->[1] for @{$dbh->selectall_arrayref(<<'__SQL__')};
+        SELECT  indrelid, relfilenode
+        FROM	pg_index JOIN pg_class ON oid = indexrelid
+            UNION ALL
+        SELECT	split_part(relname,'_',3)::bigint, relfilenode
+        FROM	pg_class WHERE relname ~ '^pg_toast_'
+__SQL__
+
+    my $rows = $dbh->selectall_arrayref(<<"__SQL__");
+        SELECT  R.relfilenode, R.oid, N.nspname||'.'||R.relname,
+                R.reltuples, R.relpages, rowbytes
+        FROM    pg_class AS R
+        JOIN    pg_namespace AS N ON N.oid = relnamespace
+        JOIN (  SELECT  starelid,
+                        sum(stawidth * (1-stanullfrac))::bigint
+                            + 3*count(*) + 18 AS rowbytes
+                FROM    pg_statistic
+                GROUP BY starelid
+            ) AS X ON starelid = R.oid
+        WHERE   R.relkind = 'r'
+        AND	    N.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND     (R.relname ~ '^pg_toast' OR R.relname !~ '^pg_')
+        ORDER BY 2
+__SQL__
+
+    my $fmt = "%9s %9s %9s %11s %7s %9s %s\n";
+    printf $fmt, qw(..DISK-KB ..DATA-KB ...EST-KB ...EST-ROWS ROWSIZE
+                        EST-RD-KB NAME) if !$quiet and @$rows;
+
+    for my $row (@$rows) {
+        my ($fnode, $oid, $name, $tuples, $pages, $rowsize) = @$row;
+        next unless ($size{$fnode}||0) > 16;
+
+        my $disk = $size{$fnode};
+        my $data = int($disk+0.5);
+        warn "$name ($oid): index $_: no size?\n" for grep {!defined $size{$_}} @{$index_oids{$oid}};
+        $disk += $size{$_} for grep {defined $size{$_}} @{$index_oids{$oid}};
+        printf $fmt, int($disk+0.5), $data, 8*$pages, $tuples, $rowsize,
+                    int($rowsize * $tuples/1024), $name;
+    }
+}
+
+sub env {
+    $ENV{PGDATA} ||= '';
+    $ENV{PGOPTIONS} ||= '';
+    print <<"__ENV__";
+ pgdir      : $pgdir
+ revision   : $revision
+ PGDATA     : $ENV{PGDATA}
+ PGDATABASE : $ENV{PGDATABASE}
+ PGPORT     : $ENV{PGPORT}
+ PGHOST     : $ENV{PGHOST}
+ PGOPTIONS  : $ENV{PGOPTIONS}
+ PGOPTS     : $ENV{PGOPTS}
+ PGUSER     : $ENV{PGUSER}
+ CFGDIR     : $ENV{CFGDIR}
+ LOGDIR     : $ENV{LOGDIR}
+ LOGFILE    : $ENV{LOGFILE}
+__ENV__
+}
+
+sub help {
+    open my $fh, "| less --no-init --quit-if-one-screen";
+    print $fh <<'__HELP__';
+SYNOPSIS
+    pg [options] <action>  : manage local postgres servers.
+OPTIONS
+    -n       - print but do not execute commands.
+    -q       - suppress non-error messages and column headings.
+ACTIONS
+    create   - Do "init", then apply $CFGDIR/*schema.sql.
+    destroy  - Stop server, then delete $PGDATA/ directory.
+    env      - Show environment settings that affect "pg" and postgres.
+    disk     - Show table/index disk usage.
+    init     - Initialize $PGDATA, then start server.
+    list     - List servers (port, pid, shmid, pgdata).
+    locks    - List locks.
+    procs    - List client processes and locks.
+    reload   - Reload postgresql.conf parameters (SIGHUP).
+    restart  - Stop then start.
+    restart! - Stop! then start.
+    revision - Show (maj.min.rev) version; e.g. 8.2.3
+    start    - Start server.  Waits until server has started
+                or has logged a start-up failure.
+    stats    - Show table statistics.
+    status   - Show status of the server listening on $PGPORT.
+    stop     - Stop server (-m fast).
+    stop!    - Stop server (-m immediate).
+    up       - Exit with status 0 iff server is running; a silent "status".
+    version  - Show (maj.min) version; e.g. 8.3.5
+ENVIRONMENT
+    PGDATA  - Postgres data directory; required by most actions.
+    PGPORT  - Postgres listening port; default=5432
+... specific to "pg start":
+    LOGFILE - Name of startup log. Only used to catch startup/shutdown failures,
+		before postmaster starts using (log_directory/log_file)
+		as specified in postgresql.conf (default: /tmp/.s.$PGPORT.log)
+    PGOPTS  - Optional postmaster start-up arguments; see "man postgres".
+		Useful for testing minimal-memory start-up; e.g. '-B 500 -N 10'.
+    PGOPTIONS - implicit psql/postmaster options (qv. man postgres). AVOID THIS.
+... specific to "pg init":
+    LOGDIR	- For PG8, the log_directory (default: $PGDATA/pg_log).
+    PGUSER	- Name of server super-user.
+    CFGDIR	- Location of optional files:
+		    - postgresql.conf and pg_hba.conf:
+			These overwrite defaults created by "initdb".
+		    - server.crt, server.key, root.crt:
+			SSL support. If not present, pg forces "ssl = off",
+			since the server would otherwise refuse to start.
+... specific to "pg create":
+    PGDATABASE	- Name of database to create.
+    CFGDIR	- Location of *schema.sql files, used to define schemas and objects.
+		  *schema.sql files without 'CREATE SCHEMA' are done first;
+		  no other dependency-ordering is supported.
+                  If $CFGDIR/$PGDATABASE is a directory, it is used
+                  instead of $CFGDIR.
+NOTES
+    "pg" expects to find pg_ctl in $PATH and plpgsql.so in $LD_LIBRARY_PATH.
+    If LD_LIBRARY_PATH or PGDATA are not set, but "pg" can infer them,
+    it will print warnings ("# export LD_LIBRARY_PATH=...").
+SEE ALSO
+    mkpg    - download, build and install a PG distro from source.
+    pgconf  - get/set postgresql.conf settings
+__HELP__
+    exit;
+}
+
+sub init {
+    # ssl=no by default.
+
+    _env('PGDIR' => $pgdir);
+    _xeq 'mkdir -p  $PGDATA';
+    _xeq 'chmod 700 $PGDATA';
+
+    #initdb 7.4.8 (script) requires explicit paths in conversion_create.sql.
+    #   This is done by mkpg on install.
+    #initdb 8.*.* (program) works if conversion_create.sql specifies no paths,
+    #   and pgconf dynamic_library_path=$pgdir/lib.
+
+    my $opt_auth = $revision =~ /^[89]/ ? '-Atrust' : '';
+    my $opt_lib  = $revision =~ /^7|8.0/ ? "--pglib \$PGDIR/lib" : '';
+    my $opt_user = $ENV{PGUSER} ? "-U$ENV{PGUSER}" : '';
+
+    _xeq "initdb $opt_auth $opt_user -L\$PGDIR/share >/dev/null";
+    # TODO: validate version against `cat $PGDATA/base/1/PG_VERSION`
+    # else "initdb" failed.
+
+    if ($cfgdir) {
+	_cd $cfgdir;
+	# Override (sample) conf files installed by initdb:
+        _xeq "cp $pgdir/share/postgresql.conf \$PGDATA/" if !-f "postgresql.conf";
+	if (my @cfgfiles = glob "p*g*.conf") {
+	    _xeq "cp -p @cfgfiles \$PGDATA/";
+	    _xeq "chmod u+w \$PGDATA/*.conf";
+	}
+	_xeq "cp -p server.crt server.key \$PGDATA" if $ssl;
+	#TODO: root.crt ... else server cannot validate CLIENT certs.
+    }
+
+    if ($ENV{LOGDIR}) {
+	_xeq "mkdir -p $ENV{LOGDIR}";
+	_xeq "pgconf log_directory='$ENV{LOGDIR}'";
+	_xeq "pgconf redirect_stderr=true";
+    }
+    _xeq "pgconf dynamic_library_path=\$PGDIR/lib";
+
+    start();
+
+    if ($revision !~ m{^9}) {
+        _xeq "createlang $opt_lib -d template1 plpgsql";
+        _xeq "psql -qc checkpoint template1";
+    }
+}
+
+sub list {
+    print "#PORT   PID      SHMID VERSION PGDATA   \n" if %portpid;
+    for (sort keys %portpid) {
+	printf "%5s %5s %10s %-7s %s\n", $_, $portpid{$_}, @{$portinfo{$_}}
+    }
+}
+
+sub locks {
+    my $dbh = DBI->connect('dbi:Pg(PrintError=1,RaiseError=1):');
+    my %ps = map {my ($pid,undef,$user,$db,$cmd) = split(/\s+/,$_,5); $pid => $cmd}
+                grep {/postgres/} qx{$PS pid,command};
+    for (values %ps) { s/\s+$//; s/ \(postgres\)//; s/in transaction/in txn/; }
+
+    my $locks = $dbh->selectall_arrayref(<<"__SQL__");
+        SELECT  x.relname, x.granted, x.pid, x.mode
+                , replace(btrim(split_part(x.query, ',', 1)), 'transaction', 'txn') AS query
+        FROM (
+            SELECT	pg_class.relname, pg_locks.granted, pg_locks.pid
+                        , replace(pg_locks.mode, 'Lock', '') AS mode
+                        , replace(translate(pg_stat_activity.current_query, '()\011\012', ';;  '), '  ', ' ') AS query
+            FROM	pg_locks
+            JOIN	pg_stat_activity ON pg_locks.pid = pg_stat_activity.procpid
+            LEFT JOIN pg_class ON pg_class.oid = pg_locks.relation
+            WHERE	pg_class.relname !~~ 'pg[_]%'
+            AND NOT (pg_locks.granted AND pg_locks."mode" ~~ '%AccessShare%')
+            ) AS x
+__SQL__
+    return if !$locks or !@$locks;
+
+    my ($lastrow, $lastcol, $row, $col) = ($#{$locks}, $#{$locks->[0]});
+    exit if $lastrow < 0 or $lastcol < 4;
+
+    my @maxwid;
+    $maxwid[$_] = length($locks->[0][$_]) for 0..$lastcol;
+
+    for $col (0..$lastcol-1) {
+        for $row (0..$lastrow) {
+            my $wid = length($locks->[$row][$col]);
+            $maxwid[$col] = $wid if $maxwid[$col] < $wid;
+        }
+    }
+
+    my @now = gmtime;
+
+    # Print headings
+    if (!$quiet) {
+        my @hdgs = ('#Object', qw(G PID Mode Query));
+        printf(" %-*s", $maxwid[$_], $hdgs[$_]) for (0..$#hdgs);
+        printf("  Process\n");
+    }
+
+    for my $row (0..$lastrow) {
+        printf(" %-*s", $maxwid[$_], $locks->[$row][$_]) for (0..$lastcol-1);
+        printf("  %s\n", $ps{$locks->[$row][2]} ||'');
+    }
+}
+
+sub procs {
+    my $PS_CMD  = "$PS pid,pcpu,vsz,rss,state,start,time,command";
+    my $SSH_CMD = 'ssh -n -x -oConnectTimeout=3 -oLogLevel=ERROR -oBatchMode=yes -oStrictHostKeyChecking=no';
+
+    my $dbh = DBI->connect('dbi:Pg(RaiseError=1):');
+    my %pg = map {$_->[0] => "qtime=$_->[1]; $_->[2]"}
+        @{$dbh->selectall_arrayref(<<"__SQL__")};
+            SELECT  procpid, date_trunc('secs', now() - query_start),
+                    replace(btrim(current_query), '\n', '\n\t')
+            FROM    pg_stat_activity
+            WHERE   procpid != pg_backend_pid()
+__SQL__
+
+    my %locks;
+    push @{$locks{shift @$_}}, $_ for @{$dbh->selectall_arrayref(<<"__SQL__")};
+        SELECT	pid,
+                    CASE WHEN granted THEN 'granted' ELSE 'WAITING' END,
+                    COALESCE(relname, relation::text),
+                    replace(mode, 'Lock', '')
+        FROM	pg_locks
+        LEFT JOIN	pg_class ON oid = relation
+        WHERE	(relname IS NULL or relname NOT LIKE 'pg[_]%')
+        AND NOT (pg_locks.granted AND pg_locks."mode" ~~ '%AccessShare%')
+__SQL__
+    $dbh->disconnect;
+
+    my $pgport = $ENV{PGPORT} || 5432;
+    my (%srvcln, %remcln);
+
+    # LSOF is accurate, and covers case where LOCAL clients open db connections
+    #   long after they start.
+    # SOCKSTAT handles all cases except the above, and it needs no root priv.
+
+    if (my @lsof = qx{lsof -n -U -i TCP:postgresql 2>/dev/null}) {
+        my %srvrem;
+        for (@lsof) {
+            my @x = split;
+            if ($x[7] eq 'TCP') {
+                if ($x[8] =~ m{(.*)->.*:postgresql}) {
+                    $remcln{$1} = $x[1];
+                } elsif ($x[8] =~ m{.*:postgresql->(.*)}) {
+                    $srvrem{$x[1]} = $1;
+                }
+            } elsif ($x[7] =~ m{^->(0x[0-9a-f]{8})$}) {
+                $remcln{$1} = $x[1];
+            } elsif (exists $pg{$x[1]}) {
+                $srvrem{$x[1]} = $x[5];
+            }
+        }
+
+        %srvcln = map {$_ => $remcln{$srvrem{$_}} || $srvrem{$_}} keys %srvrem;
+
+    } else {
+        my @clnsrv;
+        for (qx{sockstat -cu4}) {
+            chomp; my @x = split;
+            if (m{ tcp.*:$pgport })	    { $srvcln{$x[2]} = $x[6] }
+            elsif (m{ tcp.*:$pgport$})	    { $remcln{$x[5]} = $x[2] }
+            elsif (m{ stream .*\.$pgport$}) { push @clnsrv, $x[2] }
+        }
+
+        my %clnsrv = sort @clnsrv;
+        $srvcln{$_} = $remcln{$srvcln{$_}} for grep {$remcln{$srvcln{$_}}} keys %srvcln;
+        $srvcln{$clnsrv{$_}} = $_ for keys %clnsrv;
+    }
+
+    my %clnsrv = reverse %srvcln;
+
+    my %ps = map {@$_}
+                grep {$srvcln{$_->[0]} or $clnsrv{$_->[0]} or $_->[0] eq 'PID'}
+                    map {chomp; s{^\s+}{}; [split / /,$_,2]} qx{$PS_CMD};
+
+    #TODO: batch ssh commands per host, instead of one ssh cmd per connection.
+    print "PID\t".(delete $ps{PID})."\n" if !$quiet and scalar keys %clnsrv;
+
+    my $sep = '';
+    for my $cln (keys %clnsrv) {
+        my $srv = $clnsrv{$cln};
+        next if !$pg{$srv};	    # because of the IDLE filter.
+        my $rem = $srvcln{$srv};
+        if (!$ps{$cln} and $rem =~ m{(.*):}) {
+            my $cmd = qq{$SSH_CMD $1 '(sockstat -c || netstat -np) |
+                         awk '\\''!/ $rem /{next}; {sub("/.*",""); print /^tcp /?\$7:\$3}'\\'' |
+                         xargs $PS_CMD | tail +2' 2>&-};
+            chomp(my $ps = qx{$cmd});
+            $cln = "($cln)";
+            $cln .= "\n$1" if $ps =~ s{^\s*(\d+)(.*)}{$2};
+            $ps{$cln} = $ps;
+        }
+        print "$sep$cln\t$ps{$cln}\n $srv\t$ps{$srv}\n\t$pg{$srv}\n";
+        if ($locks{$srv}) {
+            # "grep" eliminates locks of anonymous objects.
+            print "\t@$_\n" for sort {$a->[0] cmp $b->[0]} grep {$_->[1]} @{$locks{$srv}};
+        }
+        $sep = "\n";
+    }
+##FREEBSD sockstat -c:
+##mischa   psql       33647 4  tcp4   192.168.98.37:58574   192.168.98.42:5432
+##mischa   psql       5816  4  tcp4   192.168.98.37:55577   192.168.98.42:5432
+##LINUX netstat -p
+### netstat -np | grep 5432
+##tcp        0      0 192.168.99.160:33473    192.168.98.42:5432      ESTABLISHED 29221/psql
+}
+
+sub start {
+
+    _env('PGDIR', $pgdir);
+
+    $ENV{LOGFILE} ||= "/tmp/pg.$ENV{PGPORT}.log";
+
+    my %cfg = map {chomp; split /=/} qx{pgconf log_directory log_filename};
+    $cfg{log_directory} ||= 'pg_log';
+    $cfg{log_directory} =~ s{^([^/])}{$ENV{PGDATA}/$1};
+    $cfg{log_filename} ||= 'postgres*log';
+    $cfg{log_filename} =~ s{%\a}{*}g;
+    my $logpatt = "$cfg{log_directory}/$cfg{log_filename}";
+    my $lastpos = 1;
+    my ($lastlog) = qx{ls -t $logpatt 2>/dev/null};
+    if ($lastlog) {
+	chomp $lastlog;
+	$lastpos = 1 + qx{wc -l <$lastlog};
+    }
+
+    my @args = ("-p$ENV{PGPORT}", split(/ /, $ENV{PGOPTS}));
+
+    if (!$quiet) {
+	print STDERR "# \$PGDIR/bin/postmaster @args >$ENV{LOGFILE} 2>&1 &\n";
+	print STDERR '# while kill -0 $! && ! psql -l; do sleep 1; done >/dev/null 2>&1'."\n";
+    }
+
+    if (!$noexec) {
+	if (my $cpid = fork()) {
+	    my $waited_for = 0;
+	    while (kill(0, $cpid)
+		    and !DBI->connect('dbi:Pg(PrintError=0):db=template1')) {
+		sleep(1);
+		$waited_for++;
+		last if ($waited_for >= 30);	#XXX if database is recovering ...
+		waitpid($cpid, WNOHANG);
+	    }
+
+	    if (!kill(0, $cpid)) {
+		system "cat $ENV{LOGFILE} >&2";
+		my ($currlog) = qx{ls -t $logpatt 2>/dev/null};
+		if ($currlog) {
+		    chomp($currlog);
+		    $lastpos = 1 if $lastlog and $currlog ne $lastlog;
+		    system "tail +$lastpos $currlog) 2>/dev/null";
+		}
+		die "pg $action: could not start db server\n";
+	    }
+
+	} else {
+
+	    setpgrp();
+	    # Close fds 0..2 plus what this process may have inherited.
+	    #	 0..255 is reasonable.
+	    # Postgres daemonization only closes 1..2.
+	    # "pg start" hangs (!) if 0 is not closed.
+	    POSIX::close($_) for 0..255;
+	    open *STDIN,  "</dev/null";
+	    open *STDOUT, ">$ENV{LOGFILE}";
+	    open *STDERR, ">$ENV{LOGFILE}";
+	    my $ret = exec("$pgdir/bin/postmaster", @args);
+	    no warnings 'exec';
+	    POSIX::_exit(1);
+	}
+    }
+}
+
+sub stats {
+
+    my $dbh = DBI->connect('dbi:Pg(PrintError=1,RaiseError=1):');
+    my $stats = $dbh->selectall_arrayref(<<"__SQL__");
+        SELECT  objpath, diskio, cachio, n_tup_ins, n_tup_upd, n_tup_del
+                ,seq_scan, seq_tup_read, idx_scan, idx_tup_fetch
+        FROM (
+            SELECT   relname
+                    ,schemaname||'.'||relname::text AS objpath
+                    ,heap_blks_read AS diskio
+                    ,heap_blks_hit AS cachio
+                    ,seq_scan
+                    ,seq_tup_read
+                    ,coalesce(idx_scan,0) AS idx_scan
+                    ,coalesce(idx_tup_fetch,0) AS idx_tup_fetch
+                    ,n_tup_ins
+                    ,n_tup_upd
+                    ,n_tup_del
+            FROM	pg_statio_user_tables
+            JOIN	pg_stat_user_tables USING (schemaname, relname)
+
+                    UNION ALL
+
+            SELECT   relname
+                    ,relname::text ||'.'|| replace(indexrelname, relname::text, '~')
+                    ,idx_blks_read
+                    ,idx_blks_hit
+                    ,0
+                    ,idx_tup_read
+                    ,idx_scan
+                    ,idx_tup_fetch
+                    ,0, 0, 0
+            FROM	pg_statio_user_indexes
+            JOIN	pg_stat_user_indexes USING (schemaname, relname, indexrelname)
+            ) AS X
+        WHERE objpath !~ '^pg_' AND relname !~ '^pg_' AND cachio > 0
+        ORDER BY 1;
+__SQL__
+
+    return if !$stats or !@$stats;
+    my ($lastrow, $lastcol, $row, $col) = ($#{$stats}, $#{$stats->[0]});
+
+    my @hdgs = ('#Object', qw(DiskIO CacheIO Ins Upd Del SeqScan TupRead IdxScan IdxFetch));
+
+    my @maxwid;
+    $maxwid[$_] = length($hdgs[$_]) for 0..$lastcol;
+
+    for $col (0..$lastcol) {
+        for $row (0..$lastrow) {
+            my $wid = length($stats->[$row][$col]);
+            $maxwid[$col] = $wid if $maxwid[$col] < $wid;
+        }
+    }
+
+    $maxwid[0] = -$maxwid[0];   # Object is Alnum => ljust.
+
+    my @now = gmtime;
+    if (!$quiet) {
+        printf("%*s ", $maxwid[$_], $hdgs[$_]) for 0..$#hdgs;
+        print "\n";
+    }
+
+    for $row (0..$lastrow) {
+        printf("%*s ", $maxwid[$_], $stats->[$row][$_]) for 0..$lastcol;
+        print "\n";
+    }
+
+    $dbh->disconnect;
+}
+
+sub stop {
+    my ($now) = @_;
+    my $type = $now ? 'QUIT' : 'INT';
+
+    my $limit = 10;
+    my $clear = 1;  # '1' for $noexec
+
+    die "stop requires PGPORT\n" if !$ENV{PGPORT};
+
+    my $pid = $portpid{$ENV{PGPORT}};
+    return unless $pid;
+    _xeq "kill -s $type -$pid";
+    while (!$noexec) {
+        sleep 1;
+        $clear = qx{$PS pgid} !~ m{^\s*$pid$}m;
+        last if $clear || !$limit--;
+        print STDERR '.';
+    }
+    print STDERR "\n" if $limit < 10;
+
+    delete $portpid{$ENV{PGPORT}} if $clear;
+    if (!$noexec) {
+        my $socks = qx{sockstat | egrep '[:.]$ENV{PGPORT} '};
+        if ($socks) {
+            my $pscurr = qx{$PS pid,ppid,pgid,user,command | egrep '[P]ID|[p]ostgres'};
+            my $info = "\n---- curr ps: $pscurr\n---- curr socks:$socks\n---- orig sockstat:\n$SOCKSTAT\n---- orig ps:\n$PSINFO\n---- socks:$USOCKS\n---- socks.ps:\n$PSRAW";
+            $info =~ s{\n}{\n\t}gs;
+            warn "==== pg stop: could not kill all postgres processes for PGPORT=$ENV{PGPORT} PGDATA=$ENV{PGDATA}:$info\n";
+            _xeq "killall -d -$type postgres >&2";
+            warn "====\n";
+        }
+    }
+}
+
+sub up { !system "pg_ctl status >/dev/null"; }
+#----------------------------------------------------------------
+# _state: must NOT require PGDATA/PGPORT/PGDATABASE to be set!
+#   If $PGDATA is set, it can read $PGDATA/postmaster.pid
+# < Optional: $PGDATA, $PGUSER
+# > $pgdir, $revision
+# > %portpid:	{ pgport => pid }
+# > %portinfo:	{ pgport => [shmid, pgver, pgdata] }
+# Set $ENV{LD_LIBRARY_PATH} so that initdb (8.x) works.
+# Provides default $ENV{PGDATABASE} so that "pg create"
+#   correctly REbuilds current server.
+# Set $ENV{PGDATA} if not already set and can connect to a (default) server.
+
+sub _state {
+
+    # On failure, SUN's "which" action prints error to stdout !? and does an exit(0) !?
+    die "pg: 'pg_ctl' is not in your \$PATH\n"
+	unless chomp($pgdir = qx{which pg_ctl 2>&-})
+		and $pgdir = realpath($pgdir)
+		and $pgdir =~ s{/bin/pg_ctl$}{};
+
+    my ($dir) = grep {-r "$_/plpgsql.so" or -r "$_/libpq.so"}
+		    split ':', $ENV{LD_LIBRARY_PATH} || '';
+
+    _env(LD_LIBRARY_PATH => "$pgdir/lib:$ENV{LD_LIBRARY_PATH}")
+	if !$dir or realpath($dir) ne realpath("$pgdir/lib");
+
+    $revision = (split ' ', qx{pg_ctl --version})[2];
+
+    if ($ENV{PGDATA}) {
+        ($pgpid, undef, $shmkey, $shmid)
+	    = split /\s+/, qx{cat $ENV{PGDATA}/postmaster.pid 2>&-};
+    }
+    my $openfiles  = $^O eq 'solaris' ? 'pfiles' : 'lsof 2>&- -p';
+    my ($pgport, $pgdata);
+    if ($^O eq 'freebsd') {
+        chomp(my @pids = map {s/^ *//; s/ .*//; $_} grep {/postgres/ && !/postmaster:/} qx{$PS pid,command});
+        my $pids = join '|', @pids;
+        $SOCKSTAT = qx{sockstat | egrep 'postgres.*(tcp4|PGSQL)|^USER'};
+        $PSINFO = qx{$PS pid,ppid,pgid,user,command | egrep '[P]ID|[p]ostgres'};
+	%portpid = reverse qx{sockstat}
+			    =~ m{postgres *($pids).*(?:tcp|stream).*[.:](\d+)}mg;
+    } elsif (grep {-x ($_ || '.').'/lsof'} split ':', $ENV{PATH} || '') {
+        %portpid = reverse qx{lsof $SOCKFILES 2>/dev/null}
+			    =~ m{ (\d\d+) .* unix .*/\.s.PGSQL.(\d+)}mg;
+    }
+
+    if (!scalar keys %portpid) {
+        $PSRAW  = qx{$PS pid,command | egrep '[p]ostmaster|[p]ostgres'};
+        $USOCKS = qx{ls -l $SOCKFILES 2>/dev/null};
+        for my $p (map {(split)[0]} grep {/postmaster|postgres/} qx{$PS pid,command}) {
+            my $opened = qx{$openfiles $p | egrep 'tcp4|PGSQL'};
+            if (($pgport) = $opened =~ m{\.s\.PGSQL\.(\d+)}m) {
+                $USOCKS .= "$p has open:\n$opened";
+                $portpid{$pgport} = $p;
+            }
+        }
+    }
+
+    for $pgport (keys %portpid) {
+        my ($pgver, $shmid, $bpid, $pgdata) = ('','');
+
+        if (my $dbh = DBI->connect("dbi:Pg(PrintError=0):dbname=template1;port=$pgport",
+					$ENV{PGUSER})) {
+            # This forces backend to open some file(s) in $PGDATA:
+            ($bpid,$pgver) = $dbh->selectrow_array(<<"__SQL__");
+                SELECT  pg_backend_pid(), split_part(version(),' ',2)
+                FROM    pg_database LIMIT 1
+__SQL__
+	    if ($pgver !~ m{^[78]}) {
+		$pgdata = $dbh->selectrow_array('SHOW data_directory');
+	    } else {
+		$pgdata = qx{$openfiles $bpid 2>/dev/null};
+		$pgdata =~ s{ -- }{/};  # Why does FreeBSD lsof require this?
+		($pgdata) = $pgdata =~ m{(\S+)/(?:base|global)/\d+};
+	    }
+            $dbh->disconnect;
+        }
+
+	if ($pgdata and my @pf = qx{cat $pgdata/postmaster.pid}) {
+	    (undef, undef, $shmid) = split /\s+/, $pf[2];
+	}
+
+        $portinfo{$pgport} = [($shmid ||'""'), $pgver, $pgdata || ''];
+    }
+
+    s{\|.*\n}{}m for my @dbnames = grep {!/^template[01]/} qx{psql -qAlt 2>&-};
+    _env(PGDATABASE => $dbnames[0]) if !$ENV{PGDATABASE} and 1 == @dbnames;
+    _env(PGDATA => $pgdata)
+	if !$ENV{PGDATA} and $pgdata = $portinfo{$ENV{PGPORT} || 5432}->[2];
+}
+
+sub _cd {
+    my ($dir) = @_;
+    print STDERR "# cd $dir\n" if !$quiet;
+    chdir $dir;
+}
+
+sub _env {
+    my ($var, $value) = @_;
+    return if defined($ENV{$var}) and $ENV{$var} eq $value;
+    $ENV{$var} = $value;
+    $ENV{$var} = $value || '';
+
+    if ($value =~ m{[^-\w/@=+:,.]}) {
+        $value =~ s{'}{'\\''}g;
+        $value = "'$value'";
+    }
+
+    print STDERR "# export $var=$value\n" if !$quiet;
+}
+
+sub _xeq {
+    chomp(my ($action) = @_);
+    $action =~ s{$ENV{PGDATA}}{\$PGDATA}g
+	if $ENV{PGDATA} and $action !~ m{pgconf};
+    $action =~ s{^\s*}{# }mg;
+    print STDERR "$action\n" if $noexec or !$quiet;
+    system "@_" if !$noexec;
+}
+
+sub check_init {
+    check_start();
+
+    die "pg $action: requires CFGDIR\n"
+	if !$ENV{CFGDIR} and $action ne 'init';
+
+    die "pg $action: requires PGDATA\n"
+	if !$ENV{PGDATA};
+
+    die "pg $action: PGDATA is not empty; use 'pg destroy' first\n"
+	if -d $ENV{PGDATA} and glob "$ENV{PGDATA}/*";
+
+    die "pg $action: cannot find $_ in $pgdir\n"
+	for grep {!-f "$pgdir/$_"} qw(lib/plpgsql.so share/postgres.bki);
+
+    if ($cfgdir) {
+	$ssl = qx{egrep -il '^[^#]*ssl[^#]*=[^#]*(yes|on|1)' $ENV{CFGDIR}/postgresql.conf 2>/dev/null} || 0;
+	if ($ssl and 2 > grep {!-f "$ENV{CFGDIR}/$_"} qw(server.crt server.key)) {
+	    warn "pg $action: turning ssl off; no server.{crt,key} (CFGDIR=$ENV{CFGDIR})\n";
+	    $ssl = 0;
+	}
+    } elsif ($action eq 'init') {
+	$ssl = $ssl ? ' and no ssl' : '';
+	warn "pg init: using default p*g*.conf$ssl because CFGDIR is not set\n";
+	$ssl = 0;
+    }
+}
+
+sub check_start {
+    die "pg $action: cannot find postmaster pgm\n"
+	if ! -x "$pgdir/bin/postmaster";
+
+    if (!$noexec) {
+        die "PG already running on $ENV{PGPORT}\n"
+            if up();
+        die "PGPORT $ENV{PGPORT} is in use\n"
+            if qx{netstat -an} =~ m{.s.PGSQL.$ENV{PGPORT}};
+    }
+}
+__END__

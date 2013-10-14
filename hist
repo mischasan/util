@@ -1,0 +1,49 @@
+#!/usr/bin/perl -w
+# hist: histogram for very large input sets with many dups.
+# If input lines contain no tab, then count each unique line value.
+# If input lines contain TWO (tabsep) fields, then sum-reduce 
+#   the second (count) field per the first (key) field.
+
+use strict;
+use Getopt::Long;
+
+my $output = "";
+GetOptions('o|output=s' => \$output);
+$output &&= "-o $output";
+
+unlink glob "hist.$$.*";
+my ($fileno, %set) = (0);
+
+sub flush {
+    open my $fh, ">hist.$$.".($fileno++) or die;
+    print $fh "$_\t$set{$_}\n" for sort keys %set;
+    %set = ();
+}
+
+while (<>) {
+    chomp;
+    my @kv = split '\t';
+    $set{$kv[0]} += $kv[1] || 1;
+    flush if 9999999 < keys %set;
+}
+
+flush if keys %set;
+exit if !$fileno;
+
+open my $fh, '-|', "sort -m -T. --batch-size=1000 $output hist.$$.*" or die;
+my ($tally, $curr) = 0;
+while (<$fh>) {
+    chomp;
+    my ($key, $count) = split '\t';
+    no warnings; # $curr is initially undef
+    if ($key eq $curr) {
+        $tally += $count;
+    } else {
+        print "$curr\t$tally\n" if $tally;
+        ($curr, $tally) = ($key, $count);
+    }
+}
+
+print "$curr\t$tally\n" if $tally;
+
+END { unlink glob "hist.$$.*" }

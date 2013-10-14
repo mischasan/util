@@ -1,0 +1,167 @@
+#!/usr/bin/env perl
+# The following assumes that postgresql.conf lines are either of the form
+#   " name = setting [# ...]"    or:   "#name = defval ..."
+# In the latter case, assigning a new value changes the line to:
+#   " name = newval # default:defval
+# TODO
+# - properly handle LIST attributes: search_path
+# - This is BUST on Solaris...why?
+# - FORCE an entry if it exists
+# - settings with context = 'internal' may not be updated.
+#-----------------------------------------------------------------------
+
+use strict;
+use warnings;
+use DBI;
+
+die <<"__DIE__" if !@ARGV;
+pgconf: manage postgresq.conf settings.
+For more info, use:    pgconf --help
+__DIE__
+
+die <<"__DIE__" if @ARGV == 1 and $ARGV[0] =~ /^(-\?|-h|--help)$/;
+pgconf: query/update settings in postgresql.conf.
+
+USAGE
+"pgconf <pattern> ..." lists all settings whose names match "pattern",
+including commented-out settings. If the server is up, it also lists
+settings in the "pg_settings" table that are not listed in postgresql.conf
+
+"pgconf ." lists all settings.
+
+eval "`pgconf <pattern> | cut -c2-`"
+will properly set shell vars.
+
+"pgconf <setting>=value ..." changes setting values in postgresq.conf.
+If the server is running, pgconf prints "reload" or "restart" as needed,
+to indicate what action is required to activate the changed parameters.
+
+<setting> can be a pattern, but must be unambiguous, either as
+an exact match, or a unique partial match. For example:
+
+    "pgconf date=iso,mdy" works: "date" only matches "datestyle"
+    "pgconf geqo=true"    works though "pgconf geqo" lists 6 settings;
+			    "geqo" is an exact setting name.
+    "pgconf log=true"     fails: several settings match "*log*",
+			    and none is exactly "log".
+
+"pgconf <setting>=#" comments out a setting. Currently this has
+no 'reverse' other than to give the setting an explicit value.
+
+ERRORS
+"pgconf" will report "unknown setting" for any setting not currently
+listed in postgresql.conf (even as a comment) when the server is down.
+
+SEE ALSO
+    pg - a better "pg_ctl"
+__DIE__
+
+my %ISLIST = map {$_=>1} qw(search_path);
+
+my $pgdata = $ENV{PGDATA};
+die "PGDATA not set\n" if ! $pgdata or ! -d $pgdata;
+
+my (%line,%value);
+my $dbh = DBI->connect("dbi:Pg(PrintError=0):");
+if ($dbh) {
+    my @data = @{$dbh->selectall_arrayref('show all')};
+    %value = map {lc($_->[0]) => $_->[1]} @data;
+    %line  = map {$_ => undef} keys %value;
+}
+
+my $fname = "$pgdata/postgresql.conf";
+open my $fh, "<", "$fname" or die "Cannot open $fname: $!\n";
+chomp(my @ponf = <$fh>);
+close $fh;
+
+my $patt = qr{^(?:\s*)(#\s*)?(\w+)\s*=\s*([^']\S*|'[^']*')}i;
+for my $line (0..$#ponf) {
+    my ($hash,$name,$value) = $ponf[$line] =~ $patt;
+    if ( defined($name)
+         and (!$dbh  or exists $value{$name})
+         and (!$hash or !defined $line{$name})) {
+            $line{$name} = $line;
+            $value{$name} = $value;
+    }
+}
+
+#$value{$_} =~ s{^([^'].*[ ,/*].*)}{'$1'} 
+#    for grep {!$ISLIST{$_}} keys %value;
+
+my ($action, $changed) = ('', 0);
+for (@ARGV) {
+    my ($name, $value) = split(/=/, $_, 2);
+    $name = lc $name;
+    my @match = grep {/$name/} keys %value;
+    die "pgconf: unknown: '$name'\n" if !@match;
+
+    if (!defined($value)) {
+        for $name (sort @match) {
+            my $line = $line{$name};
+            my ($hash) = $line ? $ponf[$line] =~ /^\s*(#?)/ : '#';
+            $hash ||= ' ';
+            print "$hash$name=$value{$name}\n";
+        }
+        next;
+    }
+
+    # A name is unambiguous if it is EQUAL to an existing setting,
+    # or if it matches exactly one existing setting.
+
+    @match = grep {$_ eq $name} @match if @match > 1;
+    die "pgconf: ambiguous: '$name'\n" if @match != 1;
+    $name = $match[0];
+    # LIST values are a special case ...
+    if ($ISLIST{$name}) {
+	$value = join ',', map {s{'}{}g; s{(.*[^\$A-Z_0-9].*)}{'$1'}i; $_}
+			    split ',', $value;
+    } else {
+	$value = "'$value'" if $value eq ""	
+			    or $value !~ m{^'}
+				and $value !~ m{^[\$A-Z_0-9]*$}i
+				and $value !~ m{^-?([0-9]+([.][0-9]*))?$};
+    }
+    if (my $line = $line{$name}) {
+        my ($hash, undef, $oldval) = $ponf[$line] =~ $patt;
+        next if $value eq $oldval; # No change!
+
+        if ($value ne '#') {
+
+            # Change a commented-out line, preserving the commented-out
+            # value as "default:"; OR update an uncommented setting.
+
+            $ponf[$line] =~ s{^\s*#\s*\w+\s*=\s*([^']\S*|'[^']*')\s*#?}{ $name = $value # default:$1}i
+            or $ponf[$line] =~ s{(\s*)\w+[^#]*#?}{$1$name = $value #};
+
+        } elsif (!$hash) {  # Try to reverse the above (re-comment it).
+
+            # Restore a previously-preserved commented-out value;
+            # OR just comment out the setting.
+
+            $ponf[$line] =~ s{^[^#]*#\s*default[:=]([^']\S*|'[^']*')}{#$name = $1 #}i
+            or $ponf[$line] =~ s/^\s*/#/;
+        }
+
+    } elsif ($value ne '#') {
+        push @ponf, " $name = $value";
+        $line{$name} = $#ponf;
+    }
+    $changed = 1;
+
+    if ($dbh) {
+        my $context = $dbh->selectall_arrayref(
+            "SELECT context FROM pg_settings WHERE lower(name) = '$name'")->[0][0];
+        $action = ($action eq 'restart' || $context eq 'postmaster')
+                    ? 'restart' : 'reload';
+    }
+}
+
+if ($changed) {
+    open my $fh, ">", $fname or die "pgconf: cannot update $fname: $!\n";
+    print $fh "$_\n" for @ponf;
+    close $fh;
+}
+
+$dbh->disconnect if $dbh;
+print "$action\n" if $action;
+__END__

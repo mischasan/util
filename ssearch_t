@@ -1,0 +1,3 @@
+#!/bin/sh
+cd $util
+./ssearch_x t/10k.hosts t/10k.hosts 10019

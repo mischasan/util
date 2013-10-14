@@ -1,0 +1,66 @@
+#!/usr/bin/perl -w
+=cut
+TODO: 
+Mon Jun 03 2013
+- when you see $(var$(...)), pull in all vars that match var*
+
+"rules [target]" emits the explicit rules "make" needed to satisfy the target.
+For up-to-date targets, the dependency list with no action is displayed.
+The rules section is prefixed with the variables set using ":=",
+or referenced by rules (possibly indirectly).
+
+NOTE: "rules" output will include some partial extraneous rules 
+        unrelated to the goal (explicit or default).
+=cut
+use strict;
+use Cwd; my $cwd = getcwd;
+my %ignore = map {$_=>1} qw(.FEATURES MAKE MAKECMDGOALS MAKEFILE_LIST MAKELEVEL MAKE_COMMAND MAKE_VERSION SUFFIXES);
+my (%set, %use, %deps, %acts, $skip, $rules, $files, $targ);
+open my $ph, '-|', "gmake -nps @ARGV" or die "Cannot run make";
+while (<$ph>) {
+    $rules = 0 if m{^# Variables};
+    $rules = 1 if m{^# Implicit};
+    $skip  = 1 if $rules and m{^# Not a target:|^[^#:=\t]*[%(][^=]*:};
+    $skip  = 0 if m{^$};
+    next if $skip;
+    if (my ($var,$imm,$val) = m{^(\S+)\s*(:)?(= ..*)} and !$ignore{$1}) {
+        $val =~ s{#}{\\#}g;
+        $val =~ s{(\s+)$}{$1#};
+        $use{$_} = 1 for $val =~ m{\$[({]([-.\w]+)(?::[^)]*)[})]}g;
+        $use{$var} = 1 if $imm ||= '';
+        $set{$var} = "$imm$val";
+    } elsif (m{^\t.} and $rules) {
+        $acts{$targ} .= $_;
+        $use{$_} = 1 for m{\$\(([-.\w]+)\)}g;
+        $use{$_} = 1 for m{\$\{([-.\w]+)\}}g;
+        $use{$targ} = 1 if m{\$\(\$@\)} or m{\$\{\$@\}}
+    } elsif (m{^# ((\w+) ([:+])?= .*)}) {
+        $deps{$targ} = "$targ: $1\n".($deps{$targ} || '') if $targ;
+        $use{$2} = 1 if $3;
+    } elsif ($rules and m{^(\S+):\s*(.*)}) {
+        $targ = $1;
+        $deps{$1} = "$1: $2" if $2;
+    } elsif (m{^\s*$}) {
+        $targ = '';
+    }
+}
+
+# Include var values have nested variable expansions
+# Recursively determine vars used.
+my @curr = keys %use;
+while (@curr) {
+    my $vals = join ' ', map {$set{$_} || ''} @curr;
+    @curr = grep {!$use{$_}++} $vals =~ m{\$[({]([-.\w]+)(?::[^)]*)[})]}g;
+}
+
+my @vars = sort grep {$set{$_} ||= $ENV{$_}} keys %use;
+my $wid = 0;
+for (@vars) { $wid = length if $wid < length; }
+printf "%-${wid}s %s\n", $_, $set{$_} for @vars;
+$acts{$_} ||= '' for keys %deps;
+$deps{$_} ||= "$_:" for keys %acts;
+print "#----";
+s{$cwd/}{}mg for values %deps;
+s{//+}{/}mg  for values %deps;
+print "\n$deps{$_}\n$acts{$_}" for sort grep {$acts{$_} or $deps{$_}} keys %deps;
+print "# vim: set nowrap:\n";

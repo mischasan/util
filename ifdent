@@ -1,0 +1,10 @@
+#!/usr/bin/perl -w
+use strict;
+my $prefix = '';
+while (<>) {
+    if    (m{^#\s*if})    { $prefix .= "+$."; }
+    elsif (m{^#\s*elif})  { $prefix =~ s{\d+$}{$.}; }
+    elsif (m{^#\s*else})  { $prefix =~ s{\+(\d+)$}{-$1}; }
+    elsif (m{^#\s*endif}) { $prefix =~ s{.\d+$}{}; }
+    print "$prefix:$_";
+}

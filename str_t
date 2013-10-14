@@ -1,0 +1,38 @@
+#!/bin/sh
+. tap.sh
+cd ${util:-.}
+plan_tests 8
+export aZ=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@
+diag 'Functional tests'
+ok 'echo $aZ | str_x - 1 ab  bc  cd  de  ef  fg  gh  hi  ij  jk'  str2  0-9
+ok 'echo $aZ | str_x - 1 kl  lm  mn  no  op  pq  qr  rs  st  tu'  str2 10-19
+ok 'echo $aZ | str_x - 1 uv  vw  wx  xy  yz  zA  AB  BC  CD  DE'  str2 20-29
+ok 'echo $aZ | str_x - 1 abc bcd cde def efg fgh ghi hij ijk jkl' str3  0-9
+ok 'echo $aZ | str_x - 1 klm lmn mno nop opq pqr qrs rst stu tuv' str3 10-19
+ok 'echo $aZ | str_x - 1 uvw vwx wxy xyz yzA zAB ABC BCD CDE DEF' str3 20-29
+ok 'echo $aZ | str_x - 1 EFG FGH GHI IJK JKL KLM LMN MNO NOP OPQ' str3 30-39
+ok 'echo $aZ | str_x - 1 PQR QRS RST STU TUV UVW VWX WXY XYZ YZ@' str3 40-49
+
+gmake -s 88.tab osho.txt
+fgrep a=a/eom        88.tab | ./str_x - 10 a=a/eom
+fgrep action=deliver 88.tab | ./str_x - 10 action=deliver
+
+diag 'Test matches against 88K strings'
+fgrep '@postgresql.org>|t=<mischa@ca.so' 88.tab \
+| ./str_x -v - 100 @p @po @pos @post @postg @postgr @postgre '@postgresql.org>' \
+                '@postgresql.org>|t=<misc' '@postgresql.org>|t=<mischa@ca.so' \
+                @p~ @po~ @pos~ @post~ @postg~ @postgr~ @postgre~ '@postgresql.org>~' \
+                '@postgresql.org>|t=<misc~' '@postgresql.org>|t=<mischa@ca.so~'
+
+diag 'Test 140-byte pattern string.'
+diag '>>> Note that BNDMEM only handles up to 128 bytes <<<'
+
+x140='|h=__CP_URI_IN_BODY|h=__CT|h=__CTE|h=__CT_TEXT_PLAIN|h=__HAS_MSGID|h=__HAS_X_MAILER|h=__MIME_TEXT_ONLY|h=__MIME_VERSION|h=__SANE_MSGID|Size='
+
+fgrep "$x140" 88.tab | ./str_x - 1000 $x140 $x140@
+
+#diag 'Test against osho.txt'
+
+(egrep 'cache size|cores|MHz|name|flags' /proc/cpuinfo 2>&- || (sysctl hw | egrep 'hw.machine|hw.model|hw.ncpu')) | sort -u | sed 's/sse/SSE/g; s/ [a-z][a-z_0-9]*//g'
+uname -a
+gcc --version 2>&1 | grep ^gcc

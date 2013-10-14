@@ -1,0 +1,1438 @@
+-:[bs]ug  +:done  x:nope  ^:forwarded  #:note  ?:question
+Fri Sep 06 2013
+- "install" should export the SHA1 of the source so that there is a backtrail.
+
+Sat Aug 31 2013
+- add AVX (immintrin.h) mm256 equivalents to xmutil, bndmem.
+
+Thu Aug 22 2013
++ allocate p_size(), then realloc smaller after trimming.
+- make psearch able to handle larger data
+    #define TRAN_WID 5
+
+    #ifndef TRAN_WID
+    #   define TRAN_WID 4
+    #endif
+    #if TRAN_WID <= 4
+    typedef uint32_t TRAN;
+    #elif TRAN_WID <= 8
+    typedef uint64_t TRAN;
+    #else
+    #   error TRAN_WID is too large
+    #endif
+
+    #define T_MATCH (1 << (TRAN_WID*8 - 1))
+    #define T_SUFFIX (T_MATCH >> 1)
+    p_tran(psp,state,sym) { return *(TRAN*)((char*)psp->tranv + (state + sym)*TRAN_WID) ^ sym; }
+    t_next(psp,t) { return (t & (T_SUFFIX - 1)) >> psp->symwid; }
+
+Tue Aug 20 2013
+x removing (ps = *psp) from psearch_more makes the asm output look worse.
+
+Fri Aug 16 2013
++ How to increase locality in psearch_create? Frequency of state hit
+    is highest for nodes near the root? Worth doing for nodes in the
+    first three plies, first?
+    + use TNODE arrays as per add_backlinks; pass (n) creates child array
+        for pass (n+1); use NULL as terminator instead of count
+        (single-argument to pass through).
+    - measure change in #(holes). Shouldn't be significant, because
+        I (deliberately) add nodes in "random" order; a statistical bias
+        toward smaller nodes towards the end.
+    # Ended up doing this for all levels; simpler code, moot perf diff in create().
+
+- combine tests (coverage) of psearch_save/load/mmap into psearch_file_t.c
+    (superseding psearch_mmap_x).
+
+Thu Aug 15 2013
+? psearch_create uses 40 bytes per tree node on a 64bit machine.
+    Half that is in the ptrs to other nodes (child,next,back).
+    Those fields could be indices into Tree[], where Tree would be
+    passed around as an extra parameter. Does reducing node size to
+    24 bytes help anybody.
+
+Wed Aug 14 2013
+- convert spooky.cpp to spooky.c and add it to hash_x.c
+- fix: msutil_t.fail(findbit_1) ssesort_t.fail xmutil_t.fail(findbit_1)
++ BUG STILL (Jan>) psearch_create creates an unusable PSEARCH if all input strings
+    are 1 byte (children of the root).
+
+Fri Aug 09 2013
+- why does psearch_dump (words) report syms=70, but stats for syms only goes up to 68?
++ add a magic signature to psearch data files.
++ add a test for psearch_more, including suffix matches across a boundary.
+
+Thu Aug 08 2013
+- make bloom use bitfields smaller than one byte.
+
+Fri Jun 28 2013
++ updatable bloom filter:
+    - adaptive calculation of (nhashes,nbits)
+        - assume fnv08 or fnv16
+    - vector of 1byte counters
+    - any counter that reaches 255 gets a hash table entry (pos => count)
+    Can this be improved? (smaller counters, say, 2 bits?)
+    How to propagate updates on this?
+
+Sun Jun 23 2013
+- Fix rules.mk so that "make foo_t" and "make foo_t.pass" work (correctly)
+    + AHA! make vars that define component subdirs should not be set in the env!
+    This makes "make foo_t" break; "make $PWD/foo_t".
+
+Thu May 02 2013
+- add perf test for findbit_1; see whether prefetch makes any difference.
+    How about a REPE SCASB reference-function?
+
+Mon Apr 29 2013
+- thread_wait won't work because thread_start creates threads as DETACHED.
+
+Mon Apr 15 2013
+# nsqual/GNUmakefile pointed out the problem with pattern-matching conditional var assignment.
+    $(nsqual)/ns% : LDFLAGS += ...
+    This pattern was being applied to "nsqual.all", "nscat", "nscat.o"
+        repeating the additions to LDLIBS.
+    This caused a problem for %(nsqual)/sc% because SurfControl libraries are 32bit.
+    BUT "rules" and even "make -ndps" gave no hint that this was the case.
+
+Thu Apr 11 2013
+- Test ssesort with dups in input.
+
+Wed Apr 10 2013
++ Make ssesort slightly more useful:
+    - assign an index 0..15 to (a copy of) the 16 doubles,
+        using a radix sort that only uses the lowest 4 bits
+        of each double.
+    - overwrite the low 4 bits of each double with its index.
+    - do the sort
+    - use the index values to create the output array.
+    So we now can use the sort for up to 64-2 bits
+
+Mon Apr 01 2013
++ make fnv16 properly carry a bit from LO to HI half of an XMM reg.
+    This requires implementing xm_shr(XMM), and xm_add(XMM,XMM)
+
+Tue Feb 12 2013
+- Test xmcmp compiled on different platforms.
+- find an optimal way to use REPZ CMPS in the face of SI,DI,CX
+    not being 32/64-bit aligned.
+
+3&SI   3&DI    3&CX => 64 cases; 64bit implies 128 cases.
+0       0       0       REPZ CMPSL
+0       0       1       MOV CX,DX; SHR 4,CX; REPZ CMPSL...; AND 1,DX; MOV DX,CX; CMPSB
+0       0       2       MOV CX,DX; SHR 4,CX; REPZ CMPSL...; AND 1,DX; MOV DX,CX; CMPSW
+0       0       3       
+0       1       0
+0       1       1
+0       1       2
+0       1       3
+0       2       0
+0       2       1
+0       2       2
+0       2       3
+0       3       0
+0       3       1
+0       3       2
+0       3       3
+
+    cld
+    cmp     %rcx,$8
+    jlt     0f
+    movl    %rcx,%rdx
+    shrl    $3,%rcx
+    repe cmpsq
+    jne     NE
+    movl    %rdx,%rcx
+0:  shrl    $1,%rcx
+    jnc     1f
+    cmpsb
+    jne     NE
+1:  shrl    $1,%rcx
+    jnc     1f
+    cmpsw
+    jne     NE
+1:  shrl    $1,%rcx
+    jnc     1f
+    cmpsl
+    jne     NE
+1:  xor     %eax,%eax
+    ret
+NE: ; glibc uses setcc intelligently here ...
+    movzbl  (%esi),%eax
+    movzbl  (%edi),%edx
+    subl    %edx,%eax
+    ret
+
+Fri Jan 18 2013
+# psearch_create: turns out that the aggressive heuristics make the smaller cases explode.
+
+Thu Jan 17 2013
+x AHA! psearch_create is slow because occasionally there will be a tiny hole left
+    near the front of usev for some first-pos entry, but every slot after that is full ...
+    so startv[] doesn't get updated, and every search for a fit scans the whole
+    bloody usev[].
+    Fixes are heuristic: if a search takes more iterations than some function of
+    (#children, max child, nsyms, ...), then *startp += (pos - *startp)/nchildren
+
+Wed Jan 16 2013
+^ BUG: psearch_create creates an unusable PSEARCH if all input strings are 1 byte
+    (children of the root).
+
+Tue Jan 15 2013
++ psearch hash table doesn't need to be that complex in access.
+    We can use a simple step=1, start=(sym + s) % hsize,
+    and no (mod hsize) for the scan index.
+    This requires allocating space to overflow the last slot in hashv[],
+    then truncating the vector when done.
+    - create:
+        - hsize = nvals * 5 /4
+        - hashv = calloc(nvals * 9 / 4, sizeof(*hashv))
+        - populate hash table using modulus hsize
+        - for (i = hsize; hashv[i - 1]; ++i)
+        - hashv = realloc(hashv, i * sizeof(*hashv))
+    - save/load: must store actual size of hashv in (PSEARCH)
+    - search:
+        x = s + sym
+        for (i = x % hsize; hashv[i].state != x; ++i)
+        ... no repeated modulos, no check for failure-to-find ...
+
+Fri Jan 04 2013
+- revisit making deas interpret switch-statement branch tables.
+    ^ Thu Mar 18 2010
+
+Mon Nov 26 2012
+- ssesort is okay. As a bottom end to quicksort it might be okay.
+    The quicksort has to be sensitive to when a subrange is <= 16 elements instead of 4.
+    How about following through on mergesort, constructing longer & longer runs?
+    The source code I have for glibc qsort (D.Schmidt) must be old because it
+    doesn't handle quicksort's second weakness: equal keys.
+
+Wed Oct 24 2012
++ implement odd-even network merge for second half of ssesort;
+    perftest it against the straight loop through two lists of sorted doubles.
+
+Tue Oct 23 2012
++ add an xm_str(__m128i,char[48]) to print an xmm value LSB-first string of hex
+  and an xm_dbl(__m128d,char[48]) to print an xmm register as "%g,%g"
+
+Mon Aug 27 2012
+- sock_t is failing (dyninit sets has_accept4=true but accept returns
+    sockets that do not have FD_CLOEXEC set.
+
+Fri Aug 24 2012
+- make dyninit use sock_connect(*,*,NOWAIT) instead of forking.
+
+Tue Aug 21 2012
+x psearch_create perhaps could use a second-level hints table: (gap1, gap2)
+- uri_parts is not good at distinguishing scheme: from host (!?)
+    where the heck is a yacc grammar for URL's?
+
+Thu Aug 16 2012
+x create a MEMBUF (or cousin) with {data,size,leng}. Or just use VEC
+
+Mon Aug 13 2012
++ !!! bitmat_trans is broken. Really. blog version also. fix it.
+
+Sun Jul 22 2012
+- construct a strstr that chooses algorithm based on strlen(pat).
+    Find the statistical winner for each pattlen in doc.stress,
+    multiplying relative elapsed-time by log(log(tgtlen)) --- longer
+    targets are less frequent.
+
+Wed Jul 18 2012
++ on doc (gcc 4.6):
+    ssebit_t.c: In function main in ssebit_t.c:8:9: error: missing braces around initializer [-Werror=missing-braces]
+
+Mon Jul 09 2012
+- Figure out the exact right way to generate (FOF FPT FSZ F64) strings as (l | ll | ull)
+    sizeof(intptr_t) ?
+    Compile-time #defines matter:
+    #define _FILE_OFFSET_BITS 64
+    __LONG_MAX__
+    __LONG_LONG_MAX__
+    __LP64__
+
+Thu Jun 28 2012
+- make castr be the reverse of acstr, i.e. parse an escaped "C" string.
+
+Fri Jun 22 2012
+- make (buf,ref)cpy have two versions:
+    - attempts to copy to a smaller buf aborts
+    - attempts to copy to a smaller buf truncates.
+
+Thu Jun 21 2012
+- make (sock_t,udp_t) not fail if IPv6 is not supported!
+- rsort_x is a hermaphrodite; make it fish or fowl.
+
+Sun Jun  3 2012
+- at some point make rsort devolved to qsort.
+
+Thu May 31 2012
+- extend psearch to 64bit transition fields, allowing machines >16MB.
+    One of the labs data investigation tests does an fgrep -f xxx
+    where xxx.bytes ~ 300MB. How about 48bit fields? That would allow
+    static bitfield widths (code:9 match:1 suff:1 link:37) 
+
+Wed May 30 2012
+- bug in (rsort_x labs.uns) segv's
+    The problem is the "recalculation" of nparts in analyze()
+    produces a different number than the original. When the former is > MAXPARTS,
+    and some key actually maps to a value > MAXPARTS ... boom!
+#       233 recs     7 rngs on 168:170 511/67158 partsSegmentation fault (core dumped)
+    The second calculation is correct. Fix the first one that sets the bounds.
+
+Fri May  4 2012
++ bugs in make test:
+	+ tail: cannot open `/var/log/messages' for reading: No such file or directory
+	# not ok 2 - fputs(...stderr) written as one line to syslog
+	#     Failed test (tolog_t.c:main() at line 33)
+
+	- not ok 2 - trivial Xt~X product
+	#     Failed test (tran_t.c:main() at line 77)
+
+Tue Mar 27 2012
+x nolock semget call doesn't work. Huh?
+
+Tue Mar 20 2012
+- fix maccess on freebsd
+
+Mon Mar 19 2012
+x make psearch_create/interleave MUCH smarter, possibly using
+        bitmasks 1..255 to find insertion points.
+        If there is no (back) allocation required, make mask bit 0
+        be the first child. Creating more startv[] points
+        Iterate through all sub-bitmasks of M using:
+            best = M;
+            For each nonzero bit subset of M, search for the highest startv[]
+            For each bit subset in (best+1..M), set startv[i]=startv[best].
+            for (m = M; m = ((m | ~M) - 1) & M;) if (startv[best] < startv[m]) best = m;
+            // wups, slight difference in masking iterating from best to M
+            for (m = best; m = ((m | ~M | best) + 1) & (M | best);) startv[m] = startv[best];
+            Begin search at startv[M] aka startv[best].
+
+
+    $ ./psearch_x bouncer
+    ok 1 - psearch_create(pattv[5917179]) compiled, in 3047.992 secs
+    strs:5917179 syms:17 chars:47337432 trans:13043257 empty:144486 hash:0 size:52173596
+    stat   44:     9505134 nnodes
+    stat  206:     3620665 backlinks
+    stat  224:      385191 pruned
+    stat  257:     3587954 nonleaf
+    stat  271: 203372934932 inner loop  <<<<<< 57K iterations per nonleaf node !?
+    stat  276: 541935630022 child loop
+
+Tue Mar  6 2012
+x wtf uri_parts doesn't properly parse "foo.com" into the HOST field !?
+
+Sun Mar  4 2012
+? making AF_INET[46] choice implicit does not seem sound.
+    sock_connect relies on the first result returned by
+    getaddrinfo to determine which kind of socket to create.
+    Or does this just neatly cover the messy parts of this
+    double-protocol?
+
+Thu Mar  1 2012
++ make uri_parts() understand inline Basic Authorization i.e.
+    schema://user:password@host... sheesh!
+
+Mon Feb 27 2012
+- add more tests to str_t, to cover edge cases of matches
+    and non-matches at end of target: overrun cases!
+- udp tests should demonstrate that IPv4 and IPv6 do not talk to one another.
+- how fast is inet_pton?
+
+Wed Feb 22 2012
+- make it easier to run just a few of the functions in stress.c
++ give sock_bind an IP arg:
+    ""means INADDR_ANY; "::" means INADDR6_ANY.
+
+Tue Feb 21 2012
++ add uint64_t to winstr. Try on both -m32 and -m64
+
+Mon Feb 20 2012
+- "make cover" is broken. "BLD=cover make all cover" does it, but sucks.
+# idea for rg-type function
+    - before target scan, scan the pattern to see if there are any
+        big skips possible if the target matches the last 4,3,2,1
+        chars of the pattern but not the rest? The function only needs
+        to use this logic if the skips are big "enough".
+
+Fri Feb 17 2012
++ make str_x thrash a separate program. Have it note the
+    best function plus any others within 10% of the best.
+    Annotate the numbers rather than printing a list at the end?
+
+Thu Feb 16 2012
+- extend bndmem to patlen > 128, using mask as a prefix?suffix?
+
+Wed Feb 15 2012
+x remove str_t from tests. It take a l-o-n-g time and it's a perf test.
+
+Tue Feb 14 2012
+- make sock_bind support bindresvport(), i.e. ask for an arb port in 512..1023
++ make sock:udp_* handle IPV6 too.
+
+Fri Feb 10 2012
+- make lohuff not depend on qsort_r, which isn't available on (artemis).
++ change sock_* to use ip addresses as strings only.
+        That makes IPV6 less of a problem.
+
+Tue Feb  7 2012
++ "make gccdefs" should not leave "-.d" files around, due to -MMD flag.
+
+Mon Feb  6 2012
+# I give up on two-way; not even worth keeping it in the test list.
+# timing tests show that bndm32 is faster than bndm128
+    except in the :0 edge case: target is '-*[pat]'.
+    which is the Horspool best edge case, too.
+    The advantage isn't much there, either.
+
+Fri Feb  3 2012
++ add IPv6 support to sock.c How does IPv6 interact with UDP?
+
+Thu Feb  2 2012
+x add railgun multibyte skips to winstr*.
+x jumpstart winstrX routines to fill up wind (2,3,4 bytes)
+    before the first iteration!
+
+Tue Jan 31 2012
+^ add ipv6 support to sock.c
++ factor bndmem into the 32bit and 128bit versions, see which
+    one wins in the 10..32 bit range. Looks like XMM is hot.
+
+Mon Jan 30 2012
+# trying to use ((m0 | m1) >> pos) as a filter criterion
+Fri Jan 27 2012
+- memcmp, expanded as a simple REP CMPSB, seems to be scanstr's
+    problem where target has many pat[0..1] occurrences.
+
+Tue Jan 24 2012
+- lock-free hash
+    A number of problems arise because (K,V) values are updated
+    separately. How about:
+    - keep a pool of (k,v) pairs with a freelist
+    - the hash table is ONLY a vector of pool indices.
+    - EVERY update attempts to allocate a (k,v) pair,
+        then update/replace a hash entry.
+    - this doesn't solve the [abc] problem where
+        key hashes to a, slot c is empty, and another
+        process empties slot b.
+
+Sun Jan 22 2012
+# Assume the average match occurs 8 bytes into the mask.
+    At this point, you have m0 and m1. Presence of
+    either character in a position where neither should occur
+    is a match failure without memcmp.
+Thu Jan 19 2012
+- is there a way to use repeats of the p0 char to test the mask?
+- is there a way to use a 32byte window (two xmm registers)?
+    Actual manipulation/testing is all done within a uint32_t.
+
+Wed Jan 18 2012
++ Change str_x perf tests to use generated data instead of reading a file.
+    Match the last chars in each target.
+    Repeat partial nonmatchable strings of 2..patlen-1
+    for tgtlen = 8..8192
+        create target[tgtlen]
+        for patlen = 4,8,16,32,64,128,256
+            for dither = -2..2
+                create
+                for reps = 0..9999
+
+Tue Jan 17 2012
+- complete the "ptrap" (push trap) function.
+    Currently it breaks on overquoting the previous trap.
++ failing tests on 64bit compile:
+    maccess_t
+    msutil_t: revbit
+- SSE4.2 is almost always better than scanstr on SOME machines.
+    scanstr has the advantage on midlength strings.
+    I'm guessing it's slower in the "memcmp" which the compiler
+    emits as a REP CMPSB.
+
+Sun Jan 15 2012
+- create an SSE2 version of horspool for strstr.
+# Given the current libc strlen/strchr are based on SSE2,
+# this implementation of "strstr" is almost exactly as fast
+# as scanstr for patlen < 32, and only half the speed of scanstr
+# for patlen == 144.
+
+    static char *strstr(char *tgt, char const *pat)
+    {
+        int     p0 = *pat++, patlen = strlen(pat);
+        for (; (tgt = strchr(tgt, p0)) && memcmp(tgt+1, pat, patlen); tgt++);
+        return  tgt;
+    }
+
+Thu Jan 12 2012
+x The test for a cross-boundary match could use bit 15 of xmatch(x,xp0)
+    and bit 0 of xmatch(x,xp1)
+    As it happens, it's faster to avoid xmatch(x,xp1) when m0 is 0.
+    So we use (m0 & 0x8000 && !memcmp(pat+1, tgt+16, patlen-1)).
+
+Sun Jan  8 2012
+Discussion of lock-free hash tables and their problems (reclaiming deletions,
+resizing with overlaps.
+Allow for an extensible vector, where seg[i] contains entries indexed by
+[i/2..i-1].
+Store kv-pairs in one vector, and store their indexes in the hash table.
+"Update" means: add a new entry to the vector, then update the pointer
+in the hash table. Entries in the vector have their own free-list (stack).
+The split-ordered-list approach makes the
+
+Fri Jan  6 2012
+- would ssearch_scan be faster if symwid was const (8)?
+- make map use a power of two as a limit.
+
+Sat Dec 31 2011
+- change [map] into a lockfree hash table implementation.
+
+Fri Dec 30 2011
+- Modify ssesort to take advantage of x64 hardware having 16 YMM registers.
+
+Tue Dec 20 2011
+- could the SSE2 bitmat transpose routine be sped up by buffering 7
+    of the resulting rows in multiple XMM registers?
+
+Sun Nov 13 12:20:20 PST 2011
+- scanbrk: glibc strpbrk(str,chrs) for larger chrs uses a 256-byte lookup table.
+    Special cases where all chrs have some common bits?
+Thu Nov 10 2011
+- add unit test for bitvec_ffs
+
+Thu Nov  3 2011
+- what's the fastest way to set one bit in an XMM register?
+    - A 128-case switch stmt and some clever code??
+    - load of one of 128 aligned 16-byte masks?
+    - load one of 32 words, then shuffle?
+- what's the fastest way to convert a list of [0..127] ints, into an XMM bitmask?
++ xmm equivalents of (ffs,fls)
+
+Tue Oct  4 201c1
++ tran_t perf test. (SSE2) bit_trans takes 7% of the time of a naive bitmat transpose.
+    Simple "optimizations" of naive_btrans do not affect this.
+? what is a more efficient way of implementing "gather" for an SSE2 register.
+
+Thu Sep 29 2011
+x add coverage:
+    addr_part belch die fnv08 fnvstr fopenf kvs_load memfind printree STRcat STRcpy vec_*
+? which is faster: MOVEMASK(PAND(a,b)) or AND(MOVEMASK(a), MOVEMASK(b))
+- now that the 32byte "problem" is solved, try speeding up memcmp using SSE2 again.
+
+Sat Sep 24 2011
+    x trying to determine where the 3x slowdown is, play with scanstr
+        x remove the scanlen(pat) from each call; pass patlen in.
+        x change the memcmp leng
+    The test data itself is not a problem; it happens to repeat every 26 bytes.
+    # Turns out that the problem was the script generating test data:
+        the target pattern wasn't being inserted in the text at all.
+        So whatever the cause of the 32-byte perf drop, it's not important.
+        The test results below are the 'real' numbers for negative searches.
+
+Fri Sep 23 2011
+    x WHAT could affect scanstr making patlen>=32 three times as slow as patlen<32
+    NO apparent difference in speed for patlen>63, either.
+    Using xmdiff(xmloud())... on leading 16byte chunks makes no visible diff,
+    so it is not the REP CMPSB itself causing the problem.
+    The test data makes it unlikely that more than one memcmp is done per call.
+- Try the (horspool + lazy strlen) approach again for 15<patlen<32.
+    Can _mm_prefetch(tgt+X,0) help? X=64?
+
+Thu Sep 15 2011
+x make reffind a Horspool algorithm OR use same speed-ups as scanstr.
+    - perhaps first implement "scanmem" that makes a special case for patlen > 32?
+    Nope this does NOT solve the 32+ problem. Something to do with the REP CMPSB?
+
++ add a test to prove that two "sendfds" retain both sendfds.
+- slurp has a bug when reading from stdin.
+    Try "cat foo | ./str_x - 1 hello"
+x stats on running str_x (scanstr) on different pos/len combinations on 88.tab.
+    Values are % time (versus glibc strstr).
+    Simplifying scanstr down to strchr|strchrn doesn't hurt!
+    ?Sudden ramp at LEN=32?  Replacing memcmp with two xmdiff's doesn't help.
+    Leading bytes of (pat+2) can be preloaded into XMM register(s).
+        POS>  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 31 32 33 63 64 65 127 128 129 255 256
+        LENv
+           2  4  8  4  7  8  4  7  4  4  4  4  5  4  4  7  4  5  4  4  4  4  8  4   4   4   4   9   4
+           3  7  6  7 11  6  6  6  6  6  7  7  6  6 13  6  7  9  6  7  9  6  7  8   6   7   8   6   6
+           4  6  5  6  6  5  7  6  6  6  5  6 12  6 10  5  6  8  6 11  5  6  5  6  11   5   6   5   6
+           5 12  5  6 11  5  6 11  5  6  9  5  6  9  5  6  9  5  6  8  6  6 10  6   6   6   6   6   6
+           6  6 11  5  6  5  6  9  5  6  5  6  5  6 11  5  6  5  5  6  5  6  8  5   6   5   6   8   6
+           7 12  5  6 12  5  6  5  6  6  5  5  6  9  5  6  5  6 12  5  6  5  5  6  10   5   6   5   6
+           8  8 12  6  7  7  7  7 12 10  6  7  7 13  6  7  7  7  7 10  6  7  7  7   7   6   7   7   7
+           9  7  7  6  6  6  6  6  6  7  6  6  6  6  6  6  6  7  6  6  6  7  6  6   6  10   6   6   6
+          15  6  6  6 13  6  6 10  6  6  6  9  6  6  6  6  6 11  6  6  6  8  8  6   6  13   6   6   6
+          16 12  6  6  7  6  6  6 12  6  8  6  6  6 10  6  9  8  7 10 10  8  5  6   9   6   8   6   6
+          17  6  6  6  5 11  6 11  6  6  6  6  8  5  6  6  6  6  6  6  5  6  5  6   9   6   6   6   6
+          31  8  5  7  4  6  6 11  5  5  4  5 11  5  6  6  9  6  6  6  7  5  6  5   6   9   5   6   5
+          32 22 30 17 31 17 18 32 17 21 23 28 24 15 32 16 23 24 20 23 18 24 17 23  24  16  24  17  25
+          33 17 22 27 18 20 40 17 22 16 17 33 16 21 16 16 29 15 21 27 31 17 22 22  28  18  22  17  18
+          63 24 15 19 26 15 19 24 15 19 19 25 33 20 15 18 33 15 36 15 19 15 17 21  17  20  30  17  19
+          64 15 15 20 15 15 20 22 17 40 15 17 38 15 20 15 16 20 15 16 37 15 16 32  15  20  17  18  37
+          65 15 19 36 15 19 34 15 33 15 16 36 15 19 15 14 34 15 17 19 15 18 28 15  19  38  15  19  15
+
+Wed Sep 14 2011
+- unit tests for VEC,STR,udp_*
++ unit tests for udp_*
+
+Tue Sep 13 2011
+- make uri_parts (1) accept a default scheme name (or just let it be http)
+    (2) be aware that different schemes (e.g. ftp) parse pieces differently.
+
+Mon Sep 12 2011
+- create a portable scan/str benchmark pgm that tests
+    glibc, non-sse and sse implementations:
+    - strings in RAM | cache
+    - success and failure cases
+    - pattern strings from 1..8,16..128 (including brk)
+    - target strings 1..32 then 64,128,256,...1MB
+    - aligned/nonaligned strings (patts are irrelevant)
+
+Thu Sep  8 2011
+? would ssearch be faster if you build sub-machines
+    for large subsets with a common suffix?
+    They would have to be subsets with a long common subsuffix.
+- make ssearchi - a case-insensitive version?
+- basing STR on VEC is wasteful, since (width,dtor,context)
+    are meaningless.
+- add cmp_x to perftest scancmp/strcmp.
+- rsort: totally-ordered keys in gather() seems worth trying,
+    if only to solve the duplicate-keys problem.
+    Is there some way to combine it with the insort?
+    That seems unlikely, since insort relies on having
+    to shift no more than minrange entries to insert
+    a new key. Bells'n'whistles.
+    CONSTRAIN effort by insort. Average insort set size
+    is MINRANGE/2=8. Number of comparisons to sort 8 is
+    8^2/2=32. The trouble is that if you hit the limit,
+    you bail (lose all work). Allow for MINRANGE
+    failing comparisons?
+
+Fri Sep  2 2011
+x add scanspn,scancasestr?
+x try scanstr4 using p0..p3?
+
+Wed Aug 31 2011
+- map_del would be faster if fnhash(key) were stored in the table.
++ add perf test for scanbrk vs strpbrk
+
+Mon Aug 29 2011
+x stream_t is broken (says "ok" but not really)
+x maccess is broken: fails on mmap'd files.
+- concur_t fails
++ maccess_t is incomplete: no tests for rdonly data memory.
+x some way to use psearch to speed up massive llel regexp?
+
+Tue Aug  2 PDT 2011
+^ tackle the exact-duplicate key problem in rsort:
+    ... so far no good ideas ...
+    When a subseg only contains duplicate values,
+    it doesn't need to be "insorted", no matter how large
+    it is. It takes one KEYDIFF per subseg in gather.
+    What if you have a lot of duplicates (every key
+    occurs exactly twice)?
+    # What happens when ALL keys are identical?
+    It's a test that will probably fail early if it fails at all.
+    >> this is turning radix sort into quicksort!
+    # What happens when SOME keys are identical?
+    Or what if ALL keys are already IN ORDER (<= is better than ==).
+
+Wed Jul  6 2011
++ rename *_t.c to *_x.c; rename *_t.sh to *_t invoking *_x programs.
++ put tap.sh into scripts
+- any way to improve psearch where tails of strings with no backlinks
+    are not put in the tree?
+
+Thu Jun 30 2011
+x implement ssestrm, using 4 registers, with 4byte prefix repeated
+    at shift offsets 0,1,2,3. Still need to do a separate nulterm
+    check against %xmm0.
+
+- gcc is not great at this code generation:
+# switch (3 & (uintptr_t)s) { case 3: ... case 2: ... case 1: ... }
+	movl	%eax, %edx
+	andl	$3, %edx
+	cmpl	$2, %edx
+	je	F21
+	cmpl	$3, %edx
+	je	F20
+	cmpl	$1, %edx
+	je	F22
+F23:...
+It could be done without any cmpl instructions ...
+	testl	$3, %eax
+        jz      F23 // case 0
+        jnp     F20 // case 3
+        testl   $1, %eax
+        jz      F21 // case 2
+        jmp     F22 // case 1
+Tue Jun 28 2011
+- make nrmake "test" target run tests in parallel.
++ stdio works with nonblocking sockets (fdopen)?
+
+Wed Jun 15 2011
+- sock_send/recv are redundant (they are EXACTLY read and write).
+    The big problem is synching message I/O over a STREAM;
+    the assumption seems to be that the receiver always provides
+    as much space as the sender requires.
+    XXX sock_send(skt,buf,size,fd) that always specifies the length
+    of data as the first iov element.
+    ? is there a reasonable way for the receiver to specify
+        a smaller buffer size than the message length?
+    ? does the receiver have to handle receiving less data
+        than the (sent) length specifies?
+
+Thu Jun  9 2011
++ add some kind of nonblocking connect().
+
+Wed Jun  8 2011
++ add a way to send/recv fds. Choose one of:
+    - add a seldom used (int *pfd) parameter to send/recv, ignored if NULL
+    + add a new sock_sendfd(skt,buf,len,fd) since it can ONLY be sent along with data
+    - add a generic way to call sendmsg(skt, struct msghdr*,0)
+
+Tue Jun  7 2011
+x ! MEMREF ought to have "char*const ptr", not "char const*ptr" !
+
+Mon May 30 2011
++ merge BUILD= functionality of util/GNUmakefile into rules.mk
++ make map_set more efficient, by using _find directly,
+    avoiding the strdup+free for UPDATE of an existing value,
+    without using map_get and thus doing the hash lookup twice.
++ improves "rules":
+    - first pass writes literal rules
+    - second pass against (gmake -np) info finds and sorts "^(var) = value" lines
+        for vars occurring in some action.
+    - make the (target : var = value) lines come out in the right order.
++ add tests for COMPLETELY UNTESTED files:
+        cessuhash concur hbits mm3hash ordhuff phkeys
+        psearch psearch_create psearch_dump psearch_file
+        rsort search
+
+Mon May 30 2011
++ combine sock_peer* into sock_peer(fd,&ip,&port,buf,size)
+
+Wed May 25 2011
++ convert hx/GNUmakefile and util/GNUmakefile to nonrecursive style.
+
+Fri 06 May 2011
+search-m search-a   platform
+  0.94    1.7       cornsalad: quadcore Pentium-R 1.8GHz
+  0.89    0.96      optimus: AMD64 Dualcore 2.5GHz
+  0.17    0.19      toad: AMD64 2GHz
+
+It looks like search-m is it, and that could perhaps improve
+if MEMDIFF became an explicit loop, rather than REPE CMPSB
+
+Wed 27 Apr 2011
++ linux: t.rsort blows up when rsort calls free(dstv): corrupt arena.
+    Need electric fence or something!
+
+Tue 26 Apr 2011
++ scan now includes the stride trick, but still need to perftest
+    the replacement of (repe cmpsb) by an explicit loop.
+    And how about using jcxz?
+
+Fri 15 Apr 2011
++ Cute trick that MIGHT speed up strscanm/memscan with longer pat strings:
+    - Calculate stride = (strchr(pat+1,*p) ? strchr(pat+1,*p) - pat : strlen(pat))
+    - When (repe cmpsb) fails, advance tgt to min(edi,ebx+stride).
+    For strscanm, the odds are much higher that the first 4 chars
+    do not occur somewhere else in the pattern at all (and that
+    the first 3 chars are not the last three, and the first two
+    are not the last two, and that the first is not the last.
+    In that case, you don't have to use the "min" logic:
+    just advance to the point of match failure (edi).
+    This means an additional:
+        add     stride(ebp),ebx
+        cmp     edi,ebx
+        cmovl   edi,ebx
+    This only makes sense if:
+    - stride is large (strlen(pat) > TUNED_VALUE)
+    - a big prefix of pat (but not pat) occurs frequently in tgt.
+        This is the case when pattern and text are a lot of similar URI's.
+
+        a............a
+        ab..........ab
+        abc........abc
+        abcd...abcd... << p
+        uns f = *(uns*)pat, b = *(uns*)(pat+len-4)
+                [dcba]      [dcba cba. ba.. a...]
+        if (patlen < 8 || f == b || (f &= 0FFF) == (b >>= 8) || (short)f == (short)(b >>=8) || (char)f = (char)(b >> 8)
+            || memscan4(pat+1, patlen-1, pat))
+            return strstrm(
+        else return strstrmx:
+            test $0xFF,-1(edi)
+            jz      8f  # end of tgt; FAIL
+            movzbl  (edi),eax
+            jmp     0b+2
+
+        B
+        aaaabaaaaa
+        AAAABAAAB?
+                ^D
+        AAAABAAA.
+        So, that's a bit icky: if tgt[d-1] is 0, FAIL immediately
+        Otherwise, movzbl tgt[d],eax and go to 0b+2.
+Tue 05 Apr 2011
++ fix ssebit: it's not adding up both halves of the prefinal step.
+
+Wed 23 Mar 2011
++ test whether unrolling the loop in strstr gets you all the same
+    gains as scanstr.
+
+Thu 17 Feb 2011
+^ find a way rsort can handle dup keys better.
++ test rsort against more/less random data, including dups!
+    >> rsort is much (x5) slower than qsort on data with lots of dups
+        (but not so few that it sees and skips uniform key bytes).
+
+x try out owsort >> it sucks
+x try explicit in-line code for insort of 2- and 3- element vectors.
+    # <5% speed-up on random data. Complexity for almost no return.
+    Note that t.sort showed a HUGE difference (simple,quick,owsort):
+    I thought simple32 wasn't doing comparisons (!?) except that
+    the output of all sorts are compared. The t.sort.s showed it was
+    inlining the code for both simple3 and simple. No diff there ...
+
+        $ build/t.sort rand.dat
+           2 0.000053 0.162506 0.915942 ms
+           3 0.000091 0.164546 0.918217 ms
+           4 0.097699 0.162605 0.914739 ms
+           5 0.109937 0.163823 0.914668 ms
+           6 0.122285 0.163940 0.919810 ms
+           7 0.134347 0.164725 0.920198 ms
+           8 0.146508 0.164649 0.911415 ms
+           9 0.158537 0.165639 0.912314 ms
+          10 0.172216 0.166141 0.915439 ms
+
+Fri 11 Feb 2011
+x revamp rsort to do an explict byte-extract routine
+    that successively fetches (up to) MAXWID lexical-key bytes
+    from each record. You don't even necessarily need
+    an explicit length function any more.
+    KEYDATA(rp, pos, len, buf) that returns {int, byte*}
+    The killer here is finding a way to determine which
+    partitions map key segments shorter than segwid.
+    For exaple a flag vector set during scatter?
+    The GAINS from this approach are:
+    - it allows lazy evaluation of lexical key bytes
+    - it doesn't require an initial pass to determine
+        the distribution of key lengths.
+# timing the length-histo pass showed it is trivial compared
+    to the first keyscan; and it may even be speeding up the keyscan.
+
+Tue 08 Feb 2011
+x add resort (smarter replacement sort) to rsort,
+    instead of insort (misnamed).
+x change comparisons in resort to more intelligent
+    ones when len is (2,3,4).
+Wed Jan 26 08:44:54 PST 2011
++ make MAXPARTS = 66049 = 257 * 257 to guarantee that
+    each pass can process >=2 bytes.
+    Probably not a significant edge case, since
+    you need WIDE byte distribution (i.e. ints, not text)
+    AND variable-length keys. Sorting ENCRYPTED data??
++ make cpuinfo() push and pop ebx,edx so that it works with PIC.
+    WTF gcc doesn't do this? IT is generating the PIC code,
+    and IT can read the asm directive that says (ebx,edx) are trashed!
+
+Fri Jan  7 2011
+x need to fix ubloom: mess of how to specify a bit,
+    when there can be >(1<<32) bits, makes this broken.
+- if qsort_r is not generally available, convert
+    psearch_create and lohuff to use qsort.
+
+Thu 30 Dec 2010
+- extend psearch to 64bit states.
+
+Sun 19 Dec 2010
++ make slurp() useful for streams as well as files.
+
+Incrementally updatable bloom filters (including deletion).
+Assume N ~ 2^30 (1 billion).
+- M is 16N, to ensure false positive rate < 0.5%
+- L is 8 or 16.
+- three data structures:
+    - filter[M]:bit
+    - counter[M]:byte
+    - cache[M/4096][L]:short,  initialized to -1's.
+        - ADD key: for each hash h[0..5](key) (0..M-1),
+            if filter[h] is 0
+                filter[h] = 1
+            else
+                let H = h / 4096 * 4096
+                if some cache[H][i] is -1
+                    cache[H][i] = h % 4096
+                else
+                    _FLUSH(H)
+                    ++counter[h]
+
+        - DEL key: for each hash h[0..5](key) (0..M-1),
+            assert filter[h] is 1
+            let H = h / 4096 * 4096
+            _FLUSH(H)
+            if counter[h] is 0
+                filter[h] = 0
+            else
+                --counter[h]
+
+        - _FLUSH(H):
+            for each i in cache[H][i] not -1
+                assert ++counter[H + cache[H][i]] > 0
+                cache[H][i] = -1
+
+Wed 22 Sep 2010
+- ssearch could be improved! use Set-Horspool logic to make the
+    final shift depend on where the W-th characters last appear in
+    any string.
+- make the search after multihash lookup into a binary search.
+
+Thu 16 Sep 2010
++ add ctags support
+x combine keyscan passes with scatter. MAXPARTS = 65536+256+1,
+    so that the very first pass can always safely map the first two bytes.
+    Thereafter, every time there are <3 positions of stats left,
+    the scatter does a scan as well.
+    OTOH perhaps the first scan could be part of the length scan.
+
+Mon 06 Sep 2010
++ aa.c checked in. Hypothesis didn't pan out; it's fractionally better
+    than simple rectangular co-ordinates, which are way easier to understand
+Wed 11 Aug 2010
+# Sheesh. Too many changes and rollbacks in rsort.c
+    Apparently I've lost PART of the fix for unstable records.
+Sat 07 Aug 2010
+- edge cases for the new analyze: interior constant columns
+    just mess things up a tiny bit, and it's not worth doing 2 scans.
+Tue 27 Jul 2010
+x AHA! rsort.analyze() can be much smarter, without impacting the
+    complexity/time of evaluating the map function.
+    Compute the (min,max) of M[i+1] for each M[i] OR VICE VERSA. (!?)
+    and use it to distribute the output M values unevenly,
+    not just as multiples of STEP. How to do this reasonably
+    efficiently? The best case is where there is only one M[i+1][x]
+    value for M[i][y].
+
+Tue 20 Jul 2010
+# The way insort raises alpha could be used to shrink ranges
+    before the minrange test.
+
+Sun 18 Jul 2010
+# Aha! The problem isn't what I thought; but now I can see that it
+    occurs when there are more than MINRANGE copies of one key.
+    The data gets split up into two runs that are insorted
+    separately. Huh? The fix below reduces the number of
+    unstable records, but that's not the real fix.
+    The fix does handle a different problem, which I hadn't spotted
+    already.
+# One reason why rsort kills qsort on sorting maillog is that
+    the first 10 bytes are sorted in one pass, and a lot of short runs
+    fall out of this.
+Sat 17 Jul 2010
+# Epiphany: the assert failure was a good clue. If the first element
+    of [alpha,omega) in insort has length <= pos, the logic that
+    advances alpha past such elements doesn't take effect.
+
+Wed 14 Jul 2010
+x rsort probably fails for single-row input because srcv = malloc(0);
+Tue 06 Jul 2010
+x OUCH bin/t.rsort maillog returns:
+    "output sorted correctly (unstably) in 1.01/5.26 secs".
+    Looks extremely infrequently, (4/200000 dups are unstable)
+    and it seems to happen every 7-8 records.
+    On the plus side, two asserts (commented out) in insort()
+    are failing. Need a tiny example to see if I can trip that.
+Thu 20 May 2010
+- given that keyscan and analyze look at the same bytes,
+    might be worth creating an example record structure that
+    uses a scratch block of 16 bytes (or whatever) in each record,
+    which is filled by the keyscan "KEYDATA0" calls,
+    then used by the scatter "KEyDATA1" calls.
+- cute trick: read the bytes of an msb int in reverse order
+    by xoring the byte index with 3.
+
+Mon 03 May 2010
+- If there's no simple way to increase len in substr(key,pos,len),
+    and the data has the dow problem (eg ../hx/t/uri.tab),
+    it would help MARGINALLY to increase MINSEG.
+- The dominating cost is SCATTER. GATHER and ANALYZE don't come close.
+
+Fri 16 Apr 2010
++ clean-up time:
+    + allow for arbitrary key lengths;
+    + package it up with (KEYLENG,KEYDATA,KEYDIFF)
+
+Sat 10 Apr 2010
+x change required RSREC format to include an RSREC* and a void*
+    (i.e. a SEG**) so that PDATA does not need to be allocated.
+
+- "1m.log" becomes the guinea pig for solving the following problem:
+    Its input is in fields but the fields do not line up on
+    the same byte positions. This could be changed by normalization
+    of field values to fixed-width integer codes or values (IPs
+    and timestamps). The basic mechanism for handling the
+    lopsided tree would make sorting efficient if the fields
+    were padded with spaces, even.
+
+- the basic limitation is when there are long correlated strings.
+    A test as to whether all segs are constant in a given byte
+    is too tight. You can do it by making KEYSCAN compare key bytes
+    within each segment, and flag bytes that are constant within
+    that segment ... but that's inefficient, given that one
+    keyscan pass may be input to several analyze passes.
+
+- Bloom filter coding would use a 32bit mask calculated across
+    each segment if there are not many segments (oho!). Group
+    segments by the number of leading byte positions with only
+    one value.
+
+Fri 09 Apr 2010
+x mm_stream in scatter has no measurable effect; tried and remove it.
+
+Thu 08 Apr 2010
+^ 1mfg is the only (unsorted) corpus that quicksort is faster on.
+    Most of the time is spent in scatter(); gather() is negligible (!?)
+Wed 07 Apr 2010
+x Is there a way to reduce nparts, if you knew how many records have
+    a given length ... so no point in adding more parts to discriminate?
+x Sort is not stable for maillog (!?)
++ Bug: if more than the first 16 chars are dup throughout the data
+    analyze fails its assert.
+    FIX: replace mapv[i] with mdata[0] immediately.
+# Perf bottleneck is SCATTER.
+    The cases where rsort lagged (actually slower than qsort) were
+    where it needs to process 60+ key bytes, and early on there are
+    places where several 3- and 4- byte slices only have 20-200
+    distinct values. Is there an ANALYZE() trick that could spot
+    correlated bytes?
++ Major bugs nailed.
+
+Tue 06 Apr 2010
++ There is definitely a bug (qv sto)
+    The stopping condition for calculating parts
++   int   KEYLENg(REC*)
+    char *KEYDATA(REC*, buf, len)
+        ... where len = min(pfxlen, KEYLENG(rp)) and
+        return value may be buf or may just point into
+        the record
+    int   KEYDIFF(REC*,int,REC*,int)
+        ... signed comparison of two records.
+        It is guaranteed that KEYLENG() will have been
+        evaluated on both before KEYDIFF needs to be called.
+
+Mon 05 Apr 2010
++ Making rsort stable by reversing the scan in SPLIT was an error,
+    because entries at the start of the segment are overwritten,
+    assuming that they'll be available for use!
+
+    The proper change is to make MERGE run in reverse order through
+    partv, and decrease omega, rather than raising alpha.
+    Meanwhile, there's some other bug.
+
+    This might mean that the assertion knocked out on Sat may indeed
+    still be correct, so the SPLIT code can stay simple (no sort by leng).
+
+Sat 03 Apr 2010
++ add a test to t.build.c to prove that the sort is stable, now that SPLIT
+    traverses the records of each segment in reverse order.
++ OHO: two bugs:
+    x rsort 2kw (unique) proto beduces duplicate values and slightly out of order
+        because the assertion is WRONG, that in scatter short records in any one partition
+        will all have the same length <= pos. Waitaminute...
+    + rsort a blows an assertion !? ... offby1 error on size of mdata
+        because of edge case
+Fri 02 Apr 2010
+x make a version purely for fixed-length keys.
+Tue 30 Mar 2010
+    $ bin/t.rsort 10mw2
+    1..1
+    # scatter  10000000 recs in     1 seg  on bytes 0:1, 678/2392 parts;      0.978 + 0.319 + 1.161 secs
+    # scatter   9997250 recs in   617 segs on bytes 2:3, 847/2650 parts;      0.000 + 1.358 + 0.807 secs
+    # scatter   9756450 recs in 34760 segs on bytes 4:6, 11379/37908 parts;   0.000 + 1.602 + 2.083 secs
+    # scatter   4321802 recs in 81689 segs on bytes 7:9, 10316/36504 parts;   0.000 + 0.735 + 1.000 secs
+    # scatter    551122 recs in 12359 segs on bytes 10:11, 569/2756 parts;    0.000 + 0.096 + 0.129 secs
+    # scatter     94203 recs in  2250 segs on bytes 12:13, 486/2809 parts;    0.000 + 0.018 + 0.019 secs
+    # scatter     15879 recs in   356 segs on bytes 14:16, 2115/55120 parts;  0.004 + 0.003 + 0.002 secs
+    # scatter       935 recs in    21 segs on bytes 17:19, 460/10143 parts;   0.000 + 0.000 + 0.000 secs
+    not ok 1 - output sorted correctly in 10.44/28.17 secs
+
+    $ bin/t.rsort 10mw
+    1..1
+    # scatter  10000000 recs in     1 seg  on bytes 0:2, 5660/37908 parts;    0.979 + 0.343 + 1.287 secs
+    # scatter   9999588 recs in  5611 segs on bytes 3:5, 9783/18954 parts;    0.000 + 1.537 + 1.537 secs
+    # scatter   7054980 recs in 142450 segs on bytes 6:9, 22350/38556 parts;  0.000 + 1.133 + 1.681 secs
+    # scatter   1622544 recs in 55018 segs on bytes 10:12, 2889/18954 parts;  0.000 + 0.285 + 0.426 secs
+    # scatter     39062 recs in  1976 segs on bytes 13:15, 314/18954 parts;   0.006 + 0.007 + 0.006 secs
+    # scatter       798 recs in    42 segs on bytes 16:18, 9/9614 parts;      0.000 + 0.000 + 0.000 secs
+    not ok 1 - output sorted correctly in 9.35/27.72 secs
+
+    $ bin/t.rsort 6r
+    1..1
+    # scatter   5917179 recs in     1 seg  on bytes 0:3, 15227/57344 parts;   0.284 + 0.205 + 0.579 secs
+    # scatter   5890595 recs in 10114 segs on bytes 4:7, 65536/65536 parts;   0.000 + 0.725 + 0.458 secs
+    ok 1 - output sorted correctly in 2.31/13.39 secs
+
+Mon 29 Mar 2010
++ make mskip into mdata[0].
+
+Fri 26 Mar 2010
+- when the number of segs does not increase by some
+    large fraction per iteration ... what?
+    That's a basic data-dependency of radix sort.
+    Doing multiple bytes in one pass reduces the problem.
++ pused[] isn't worth it for large nrecs; so it's not worth it.
++ t.rsort rsort.s crashes on an assert. NRFPT.
+    And here's why: of the remaining keys in srcv, there
+    may be none that are as long as keyscan wants to fill
+    the next 12 maps. So keyscan should exit as soon as it
+    hits such a map; and rsort should not try to call any
+    deeper if more = 0
++ skip mused; set mdata[x][0] = -1
+    so deallocation does not require mdata to be passed in.
+
+Thu 25 Mar 2010
++ simple test cases fail e.g (a, aa, aaa, aaaa, aaaaa, ...)
+    Seems to center on edge cases including zeroleng keys.
++ increasing MAXPARTS does not seem to change prefix length.
+    Hmmm...
+
+Wed 24 Mar 2010
+^ increase the density of partv. This means tightening the
+    mapping of bytes somehow. Could ordered huffman fit into
+    this? The gain is from having more keys separated out early.
+    The problem is having
+
++ increase PREMAP width to 12 bytes.
+- demonstrate that this is O(n)!
++ weird: t.rsort "fails" on the takebishi maillog, even though
+    the output of rsort and qsort (dumped to two files) is identical,
+    AND sorted.
++ maybe go for the more armslength interface:
+    len := KEYLEN(recp)
+    nbytes := GETKEY(recp, pos, buf, bufsize)
++ make MAXLENG adaptive.
+
+Tue Mar 23 10:11:04 PDT 2010
++ add a bytevec of flags, one for every 16 partv entries.
+    This should mitigate the cost of scanning in gather.
+    This replaces minrix/maxrix, which don't seem to have much use.
+
+Mon Mar 22 2010
++ next bug: the code that deallocates mdata[] rows does not work.
+    Or for some other stupid reason
++ aha! "fail" is a 390 line file that fails ("am" sorted after "ama").
+    And that proves that, within one partition, you get strings with
+    different lengths <= insort::pfx. When "ama" has length 3 and
+    am has length 2, you have a problem.
+    Changing the insort line
+	if (qp->leng <= pfx)
+    to
+	if (qp->leng <= pfx && qp->leng <= rp->leng)
+    fixed the problem for t/fail but not wordr, which
+    still sorts "am" after "ama".
+    Found the bug: lengv[] wasn't initialized, so all the
+    length counts were wrong, so some mapv[] rows started
+    with 0 instead of 1*step.
+
+Sun Mar 21 2010
++ all tests up to 6m random records produce correct results.
+    Need tests with longer (>200b) keys with lots of equal prefixes
+    to see whether PREMAP=4,8,16 makes any difference whatsoever.
+    Currently consistently 5:1 versus qsort, except for
+    completely presorted input, where they are always 1:1;
+    does qsort have a quick precheck for this special case?
+    Some of the code is a bit clunky; the artificial breakdown
+    into routines (scatter, gather) forces silly long parameter lists.
++ damn: /usr/share/dict/words turns up some weird missorts;
+    an edge case for varlen keys, possibly in insertion sort:
+            Africana
+            African
+            Asa
+            As
+	...
+
+Fri Mar 19 2010
+x stop analyzing maps deeper, when nparts > (number of records left i.e. sum of seg widths).
++ instead of mused, set mdata[0] = -1
+x partv and pdata.next as (PART*)? slows down "for (curr = partv[i]; curr;)"
+# wow: 2-5 times as fast as qsort, but a problem
+
+Thu Mar 18 2010
++ make keyscan use srcv, not recv!
++ find what overruns malloc'd buffers.
+- figure out EXACT stopping condition.
+- handle keys >999 bytes.
+
+-  = = pfxlen; pfxlents 49 times>, 540, 0 x 206}
+*mapv[2]@256 {0 x 48, 270, 540, 810, 1080, 1350, 1620, 1890, 2160, 2430, 2700, 0 x 41, 2970, 0, 0, 0, 3240, 0, 0, 0,
+  3510, 0, 0, 0, 3780, 0, 0, 4050, 0, 0, 0, 4320, 0, 0, 4590, 0 x 134}
+*mapv[3]@256 {0 x 49, 15, 0, 30, 45, 60, 75, 90, 0, 105, 0 x 42, 120, 0, 0, 0, 0, 0, 0, 135, 150, 0, 0, 0, 0, 165, 0, 0,
+  180, 195, 0, 0, 0, 0, 210, 0 x 133}
+*mapv[4]@256 {0 x 46, 1, 0, 2, 3, 4, 5, 6, 0, 0, 0, 7, 8, 0 x 39, 9, 10, 0, 0, 0, 0, 0, 0, 0, 11, 12, 13, 14, 0, 0, 0,
+  0, 0, 0, 0, 0, 15, 0 x 137}
+
+*mapv[1] has two elements and no lengv; should have a step of 4860.
+
+Looks like mapv[2].step should be 225, not 270.
+
+max(mapv[4]) == 15, which means the step for mapv[3] should be 16, not 15.
+
+mapv[5..7] were allocated (and computed) and should be useful for next pass.
+
+- "deas" does not handle switch-statement branch tables
+     jmp	*.L36(,%edx,4)
+    .L36:
+    .long	.L27
+    .long	.L105
+    .long	.L106
+    .long	.L107
+    .long	.L108
+    .long	.L109
+    .long	.L110
+    .long	.L34
+    .long	.L35
+    .text
+    .L35:
+    .loc 1 188 0
+    movl	-29568(%ebp), %ebx
+    movzbl	9(%ecx,%ebx), %edx
+    movl	-29552(%ebp), %ebx
+    etc.
+............... OR .......................
+	jmp	*.L131(,%rdi,8)
+	.section	.rodata
+	.align 8
+	.align 4
+.L131:
+	.quad	.L3
+	.quad	.L4
+	.quad	.L5
+...
+	.quad	.L128
+	.quad	.L129
+	.quad	.L130
+	.text
+.L130:
+.LVL3:
+.LBB965:
+.LBB966:
+	.file 2 "/usr/lib/gcc/x86_64-redhat-linux/4.4.6/include/emmintrin.h"
+	.loc 2 1155 0
+	pslldq	$15, %xmm0
+.LVL4:
+.LBE966:
+.LBE965:
+.LBB967:
+.LBB968:
+	.loc 2 1130 0
+	psllq	$7, %xmm0
+.LVL5:
+.L3:
+.LBE968:
+.LBE967:
+	.loc 1 272 0
+	rep
+	ret
+
+
+Tue Mar 16 2010
+# rsort (single byte radix) now passes the minimal level-flight test.
+Time to add a bunch of real tests.
+x start thinking about a version of rsort for fixed-length keys.
+
+Sat Mar 13 2010
++ rsort kick-off. Round one is pure single-byte radix sort,
+using no maps, but doing the (srcv -> partv,recv)
+and (partv -> dstv,recv) steps, with basic inplace linear sort.
+
+Sun Jan 31 2010
+# OKay, the hash step bug is fixed. Running create on more samples
+#   suggests that the "inner loop" optimization (assigning syms
+#   by descending frequency) is working; now the "child loop"
+#   is starting to show up more.
+
+Fri Jan 29 2010
+# Well, this is about done. Anything else is gilding gold.
+t.psearch is currently faster than fgrep, even when it saves
+the machine to a file first!
+
+No point in trying to reduce the temp data in psearch_create
+from 24b per pattern byte. No point in shifting the logic
+that sets .back = 0 if .back == troot.
+
+ok 1 - psearch_create(pattv[235882]) compiled, in 2.353 secs
+strs:235882 syms:54 chars:2257200 trans:1404835 empty:13876 hash:51683 size:6033364
+stat   52:      792774 nnodes
+stat  222:      410607 backlinks
+stat  241:       52670 pruned
+stat  273:      598238 nonleaf
+stat  287:    51502013 inner loop
+stat  292:    25151053 child loop
+stat  351:       12829 hash collision
+stat  354:       41688 hash overstep
+
+Fri Jan 22 2010
++ Okay first hack at embedding strid in leaf nodes made something
+goofy happen; and the tree is TOTALLY dysfunc.
+ok 1 - psearch_create(pattv[10000]) compiled, in 0.220 secs
+strs:10000 syms:46 chars:228506 trans:339553 empty:4127 hash:19 size:1358924
+stat   66:       48217
+stat   80:          15
+stat   81:      339539
+stat  299:    12847574
+stat  303:      182926
+... versus old:
+strs:10000 syms:46 chars:228506 trans:195909 empty:45 hash:12503 size:884220
+stat1: 12693828 stat2: 23685178
+
+WTF 340K trans versus 195k ??
+
+Thu Jan 21 2010
++ calculate a better bound on initial calculation of space for Tree,
+based on (nstrs,nsyms,chars) and perhaps max patt[i].len
+
++ Save space and time, at the cost of a more complex data struct:
+    Most matches are leaf nodes (next == 0). Encode strnos
+    as (ps.trans_size + strno). Test for this in the MATCHED part
+of psearch_scan.
+This works for (ps.transize + strno < 1 << (30 - symwid))
+The remaining cases go into the (now much smaller) hash table.
+
+Sat Jan 16 2010
+x computing hash(children) looks pretty pointless,
+since there are way too many combinations possible for the
+nodes with high count(children), and they're the ones we're
+trying to deal with!
+x the amount of unamortized work is (pos - *startp)/(newstart - *startp)
+is huge, even for count(kids) = 2.
+The random approach looks promising, althought there are slightly
+more loops through stat1 but WAY less loops through stat2
+
+Wed Jan 13 2010
+x Not sure what went wrong with the max(start)/children change;
+think there was a bug that misupdated startv.
+Alternate approach: assign symv[] in descending order of freq.
+Increase the probability of multiple wide nodes having the
+same child[0].
+
+# !! The key was that adding an 'irrelevant' sort criterion
+actually made COMPILE faster.
+INTERLEAVE needs to mix in insertions of shorter (single branch!)
+nodes, because they are what advances startv[] values most efficiently.
+Don't know exactly what scheme is right to do this.
+
+Mon Jan 11 2010
+x !! serious improvement to compile: instead of using FIRST child
+to find start, use max across all children. Whatever code has
+the max is what gets updated at end of loop.
+Must exchange child[0].code with child[maxi].code
+for the duration of the inner loop, to ensure it is tested
+before any other code. Either change fill_hashv to a recursive
+version that only uses (match,state), or make interleave
+swap the two codes back at the end ... recursive version
+has more function-call overhead, but doesn't call find_child
+(quadratic overhead).
+
+Help this along by assigning codes by descending frequency?
++ psearch_create is aborting, probably because it's trying to
+allocate some work vectors on the stack.
+
+Wed Dec 30 2009
++ make PSEARCH structure mmap'able.
++ make hash_size a prime, and use a hashed step value,
+to spread hashv[] evenly. Not a perfect hash, but quite good.
+x write ssesort32u, ssesort16c7
+
+Mon Dec 28 2009
++ open addressing doesn't need that "% tablesize": just pad
+the end of the table with the needed overflow entries.
+
+Sat Dec 26 2009
+x still trying to get a handle on a perfect hash function.
+Looking at 10k.hosts' states, 12 of 18 bits are useful
+(see hbits.c). But that leaves you in a dead end;
+mapping an arbitrary mask of bits to sequential
+positions is a tedious extra set of lookups,
+and the next steps are not clear.
+The answer leads right back to some kind of interleaved array.
+# Daoud's version of 'perfect' hash looks just like cuckoo hash (N=2).
+Althought this is not a bad idea, the problem domain
+for psearch is much more constrained (good) and resources
+to execute are not a problem (O(n**2) is okay).
+The scatterting technique (hbits) breaks the table
+into segments of
+
+Fri Dec 25 2009
+x there really ought to be a cleaner way of writing
+the whole second-half loop of psearch_scan.
+NO: because outside the current loop, next is valid,
+inside the loop, it may not be.
+
+Tue Dec 22 2009
+# AHA! the "sym" field of a trans can be fixed width (e.g. 6 bits)
+so long as there are enough values that Interleave remains
+efficient. It makes the construction more complicated
+(slower, possibly) but means psearch_scan can use fixed shift
+widths and masks; and psearch can guarantee support for up to
+2^24 states, which is
+
+Mon Dec 21 2009
+x translate ordhuff to use MMX.
+
+Wed Dec 16 2009
++ all psearch bugs resolved: needed to ensure there was a ZERO next value
+in all leaf nodes. Bonus: no need to store a LEAF bit even just for psearch_dump.
+Surprisingly, adding the logic to ensure backing up after a match
+(which is really just part of following the backref chain
+ for suffix matches) means that leaf nodes always have next=0
+which means the transv tables are denser. Gosh.
+
+x compute a perfect hash of (state -> string)
+This would eliminate the loop
++ Forget "perfect": the current use of (unmodified) state as a hash
+is actually horrific.
+
+Tue Dec 15 2009
++ psearch_create bugs
+- MAJOR: given (zeta,eta,tau), scan of "zetau" does not match "tau".
+- MINOR: reduce_backrefs does not seem to reduce the pointless
+backrefs in (zeta,eta,tau).
+
+Thu Dec 10 2009
+- reverse salsa20xmm2.s back to C code making xmmintrin calls.
+x figure out how to make ssesortd8 useful!
+
+Fri Dec  4 2009
+- linear search through strings with the same suffix makes ssearch look stupid
+when the suffix is (much) smaller than the average string.
+For the 10k.hosts example, there are 4000+ strings for suffix "l.com"
+because of tinyurl.com
+>> sort each list in prefixv, by REVERSE bytes, and do BINARY search for a match.
+
+Thu Dec  3 2009
+- add more test cases to t.ssearch.c, with overlapping strings.
+
+Tue Oct 20 2009
+x convert psearch/psearch_create from MEMREF to (text,leng).
+The only ishy thing is how to pass vector of these pairs
+to psearch_create().
+
+Wed Sep 23 2009
+- so, fnv128 has a bug in it (VERY poor distribution), and sha256 segv's.
+
+Fri Mar 20 2009
+- add interface for psearch_scan that maintains internal state.
+It will then process a stream of chunks.
+The 'end offset' of a string will be within the current chunk.
+
+Thu Mar  5 2009
+- get stats on # of single-child branches with a backref.
+^ make psearch separately interleave all branches with a backref to 0
+(as opposed to no backref) ahead of all other branches (including root?)
+into a contiguous segment, as if they had no backref.
+This solves the problem of an A-C tree that spreads out wide
+from the root then mostly is a single string of chars
+(sort of like a portuguese man'o'war): almost all chars
+are represented at the root, and so almost all single-child
+branches also have a backref, which means using 8 bytes
+per pattern char.

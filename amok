@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# TODO: handle base classes ... probably should use Perl to load a module
+# and then dump its method tables.
+
+if [ $# != 1 ]; then
+    echo >&2 'Usage: amok <package>  - create a default t/mock module for a package'
+    exit 1
+fi
+
+package=$1
+path=$(echo $package | sed 's|::|/|g').pm
+file=$(perl -M$package -le "print \$INC{'$path'}" 2>&-)
+test "$file"  || file=$PMX_PREFIX/lib/$path
+test -f $file || file=$(ls -t $(locate $file) | head -1)
+test -f $file || { echo >&2 "No file found for $package"; exit 1; }
+
+test -d t/mock || { echo >&2 'no t/mock directory'; exit 1; }
+mkdir -p t/mock/$(dirname $path)
+
+echo >&2 "amok < $file"
+echo >&2 "amok > t/mock/$path"
+(
+cat <<__CAT__
+package $package;
+use strict;
+use warnings;
+use Carp qw(confess cluck);
+use Data::Dumper; \$Data::Dumper::Terse = 1;
+use Data::Dump qw(dump);
+__CAT__
+#TODO: process EXPORT/EXPORT_OK stuff properly.
+sed -n '/^package/ { /'$package'/!q; }
+	/use base .*Exporter/{ p; d; }
+	/use base/ s/^/#/p
+	/our @EXPORT/,/;/{ p; d; }
+	/^our / s/^/#/p
+	/^sub /{
+	    s///
+	    s/[ {].*//
+	    /;/d
+	    /^new$/{
+		s/.*/sub new { shift; bless {@_} }/p;
+		d;}
+	    s/.*/sub & { Carp::confess __PACKAGE__."::&(@_)"; }/
+	    p;}' $file
+echo "1;"
+) >t/mock/$path

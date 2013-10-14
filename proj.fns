@@ -1,0 +1,320 @@
+# The usual protection from trying to execute this, rather than source it:
+#case $0 in *bash|*rc) ;; 
+#*) echo >&2 "Use:   . $0  to source these functions into your current shell"; exit
+#esac
+
+#====================================================================
+#alias a2ps='/usr/bin/a2ps -Mletter'
+alias dial='set -- [l] [abc] [def] [ghi] [jkl] [mno] [prs] [tuv] [wyx] 0'
+alias lc='ls -CALF'
+alias rehash='PATH=$PATH'
+alias rp=realpath
+alias j=jobs
+alias jbos=jobs
+alias 6=vim
+alias v=vim
+alias vi=vim
+alias iv=vim
+alias ivm=vim
+
+proj() {
+cat >&2 <<__CAT__
+... proj.fns defines:
+agg         Aggregate second column per unique first-column value.
+amph [dir]  All files under (dir:.) that are four-letter amphibian names.
+d4          Display p4 change info for change#'s or p4 paths.
+dbg         Like "perl -d" for gdb, plus some common good default options.
+dist        Histogram of input values. Output lines are: (value)\t(count).
+e4          "p4 edit" allowing for symlinks.
+envex       Expand all unescaped ${environment_var}'s in a text file. Poor man's template-expand.
+envi	    Edit (redefine) environment vars using \$EDITOR.
+ep	    Append/prepend/delete directories in \$PATH-style list. SEE DOC BELOW
+fld n       Print col n of inputs. Like cut -f(n), but using whitespace, not just \t.
+ff          Fast find-file, setting a one-letter variable. "ff -a" looks in build-* etc.
+gccdefs     Lists all internal gcc #defines (e.g. __Linux__)
+gdif        vimdiff for git (like vd for p4)
+h           History with a bit of grep.
+how	    Like "which", but finds aliases and functions, follows symlinks and shows file type.
+hoy         Print date (e.g.) Mon Jan 09 2012"
+jsh         Shell into a jail.
+loc         ls -ltr `locate $*`
+MAN         Use the "info" command to get a more complete usage for std commands.
+Offending   Handle the ssh error "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" 
+p4m         List  (unedited, unadded, opened, unsync) files
+p4mv        What used to be "p4 rename"
+p4na        A better "p4not".
+p4w         Show local filename for a perforce pathname.
+path	    List \$PATH-style environment var, readably.
+pds         Print (reporting_groups) Storables: hashes with (1) for all values.
+pdj         Pretty-print JSON files (or -).
+qq          Convert array of args to shell-escaped quoted strings.
+realpath    Support for realpath (FreeBSD has it, Linux doesn't)
+setws       Set WS_* vars; e.g. "setws airwolf"
+tl          Tail almost-a-screenful.
+up          Pushd up (N) levels of directory.
+vd          p4 diff using vimdiff
+vdgit       git diff using vimdiff
+wi	    Edit a script in \$PATH or an alias/function in a sourced file.
+zr          Zero out a file
+__CAT__
+}
+#--------------------------------------------------------------------
+amph() { find 2>&- ${1:-.} -name frog -o -name toad -o -name newt -o -name bufo -o -name rana -o -name sapo; }
+
+d4() { 
+    local s; if [ .$1 = .-s ]; then s=-s; shift; fi
+
+    if [ -t 1 ]; then tput clear; else export P4DIFF=`which diff`; fi
+    
+    for x; do 
+            echo ================== $x ==============
+            case $x in
+            [1-9]*[0-9]) p4 describe -du $s $x ;;
+            *) p4 diff -du $x ;;
+            esac
+    done | if [ -t ]; then less -R; else cat; fi
+}
+
+dbg() {
+    local pgm=$1; shift
+    test -f $pgm || pgm=$(which $pgm)
+    local type=$(file $pgm) lsize
+    case "$type" in 
+    *core\ file*)
+        # $ sysctl kernel.core_pattern
+        # kernel.core_pattern = %e.%p.core
+        # $ file many_t.10282.core
+        # many_t.10282.core: ELF 64-bit LSB core file x86-64, version 1 (SYSV), SVR4-style, from './many_t'
+        set -- $(echo $type | sed "s/^\([^:]*\).*'\(.*\)'/\2 \1/")
+        pgm=$1; shift
+        ;;
+    *)  cmdf=/tmp/gdb.$$
+        let lsize=LINES/2
+        local argv=$(perl -le "print join' ',map{qq{'\$_'}}@ARGV" -- "$@")
+        cat >$cmdf <<-END
+	    she rm -f $cmdf
+	    set listsize $lsize
+            set log file dbg.log
+	    b main
+	    r $argv
+	END
+        rm -f dbg.log
+        set -- -x $cmdf
+    esac
+    [ ! -x "$pgm" ] || $(which gdb) -q $pgm $*
+}
+
+agg()  { perl -nale '$c{$F[0]} += $F[1]; END {print "$_\t$c{$_}" for sort keys %c}' $*; }
+dist() { perl -nle '++$c{$_}; END {print "$_\t$c{$_}" for sort keys %c}' $*; }
+
+e4   () { for x; do p4 edit $(realpath $x); done; }
+
+envex() { perl -pe 's/ (?<!\\) \$ {([A-Z_][A-Z_0-9]*) } / $ENV{$1} || ""/geix' $*; }
+
+envi() {
+    local sep=@ tmp=/tmp/envi.$$
+    env | egrep -i "^[a-z_]*$1[a-z_]*=[^(]" | sed "s/=/='/; s/$/'/" | sort >$tmp
+    if egrep -s ' ' $tmp; then sep=' '
+    elif egrep -s : $tmp; then sep=:
+    fi
+    if [ "$sep" != @ ]; then
+        mv $tmp $tmp.1; tr "$sep" \\n <$tmp.1 >$tmp
+    fi
+    typeset sum="$(sum /tmp/eset.$$)"
+    ${EDITOR:-vi} /tmp/eset.$$
+    if [ "$sum" = "$(sum /tmp/eset.$$)" ]
+    then echo >&2 "envi: no changes"
+    else if [ "$sep" != @ ]; then mv $tmp $tmp.1; tr \\n "$sep" <$tmp.1 >$tmp; fi
+        eval "$(</tmp/eset.$$)"
+    fi
+    rm -f $tmp $tmp.1
+}
+
+
+ep() {
+    if [ $# = 0 ]; then echo >&2 'Type: "ep -?" for usage'; return; fi
+    if [ $1 = '-?' ]; then cat >&2 <<-__USAGE__
+	USAGE: ep [var] [+^-]dir... -- append/prepend/remove dirs in a PATH-style variable
+	"var": name of variable (case-insensitive). Default is PATH.
+	"OP" : one of:
+            + : append dir to var
+            ^ : prepend dir to var
+            - : delete dir from var
+
+	Append/prepend ignores dir args that are not directories.
+        Append/prepend removes duplicates from the variable.
+	"ep" accepts multiple dirs, but processes them left-to-right,
+	   so "ep ^one ^two" puts "two:one:" at the front of $PATH.
+__USAGE__
+        return
+    fi
+
+    typeset args="$*" dir op val front var
+
+    case "$1" in 
+        [-+^]*)     var=PATH ;;
+        [A-Z_a-z]*) var=$(env | sed -n "/^$1[A-Z_0-9]*PATH=/{s/=.*//p;q;}"); shift ;;
+        *)          echo >&2 'Type "ep -?" for usage'; return
+    esac
+
+    if [ $# = 0 ]; then path $var; return; fi
+
+    eval "val=:\$$var:; test \"\$ORIG_$var\" || export ORIG_$var=\"\$$var\""
+    test :: != $val || val=:
+    for dir; do 
+        case $dir in -?*) op=- ;; ^?*) op=^ ;; +?*) op=+ ;; *) continue; esac
+        eval dir=${dir#$op}         # Ensures ~ is expanded
+        test -z $dir || val=${val//:$dir:/:}
+        if [ -d $dir -o -L $dir ]; then
+            case $op in [-!]) ;; ^) val=:$dir$val ;; +) val=$val$dir: ;; esac
+        fi
+    done
+
+    val=${val%:}	# trailing :
+    val=${val#:}	# leading :
+    eval $var=$val
+}
+
+fld () { local fld=$1; shift; awk "{print \$$fld}" $*; }
+
+#XXX: add "-d" for directories-only
+ff () {
+    local a=n
+    if [ .$1 = .-a ]; then shift; a=y; fi
+
+    local patt="$1" f fff
+    if [ ! "$patt" ]; then 
+        perl -le '($x) = $ENV{PWD} =~ m{(.*/)}; for $f (sort grep {m{^[a-z]{1,2}$}i and -f $ENV{$_}} keys %ENV) { $_=$ENV{$f}; s{^$ENV{PWD}/}{}; s{^$x}{../}; s{^$ENV{HOME}}{~}; print "$f $_" }'
+        return
+    fi
+
+    # Locate and choose the file:
+    set -- $(case $a in y) find * -type f ;; n) find * -name build-\* -prune -o -name blib -prune -o -name buildenv -prune -o -type f; esac 2>&- | egrep "$patt")
+    test $# = 0 || set -- $(file $* | sed -n /text/s/:.*//p)
+    case $# in 
+    0)  echo >&2 "ff: cannot find '*$patt*' in $PWD"; return ;;
+    1)  fff=$PWD/$1 ;;
+    *)  local COLUMNS=40; select fff in "$@"; do fff=$PWD/$fff; break; done ;;
+    esac
+
+    # If it has already been assigned to a variable, just report that:
+    if env | egrep -i "^[a-z]{1,2}=$fff$"; then return; fi
+
+    # Assign it to a one- or two-letter variable that's in the filename somewhere:
+    f=${fff##*/}
+    set -- `perl -le '$f="'${f%%.*}'"; print(($f) = grep {!$ENV{$_} and !/[^a-z]/i} split(//,$f), $f=~/../g)'` ff
+    eval $1=$fff
+
+    echo -n >&2 $1=; echo $fff
+}
+
+gdif() { git difftool -t vimdiff $*; }
+
+h() { history | awk "/$*/"'{ n=$1; $1=""; x[$0]=n}; END { for (a in x) print x[a]"\t"a }' | tail -$LINES | sort -nk1 ; }
+
+how() { 
+    PATH=$PATH  # reset path search
+    shopt -s extdebug
+    (typeset -F $1 || alias $1 || case $1 in
+        *::*) perl -m$1 -e '($x="'$1'")=~s|::|/|g; print $INC{"$x.pm"}."\n"' ;;
+       *) local w=$(which $1 2>&-)
+        if [ "$w" ]; then
+            local r=$(realpath $w)
+            test $w = $r || echo -n "$w -> "
+            file $r | sed s/,.*//
+        fi
+       esac
+    ) 2>&-
+    shopt -u extdebug
+}
+
+hoy() { date +'%a %b %d %Y'; }
+
+# BSD jail-shell
+jsh() {
+    local J=$(jls | awk '$3==J{print $1}' J=$1); shift
+    if [ $# = 0 ]; then sudo jexec $J su -; else sudo jexec $J su - root -c "$*"; fi
+}
+
+loc()   { ls -ltr `locate $*`; }
+MAN()   { info coreutils "$1 invocation"; }
+Offending() { case "$*" in key?in?/*/known_hosts:*) sed -i ${3#*:}d ${3%:*}; esac; }
+
+p4e()   { p4 diff -se ... | xargs -n1 p4 edit; }
+p4m()   { echo Unedited:; p4 diff -se ... ; echo Unadded:; p4na; echo Opened:; p4 opened ...; echo Unsync:; p4 sync -n ...; }
+p4mv()  { p4 integrate $1 $2; p4 delete $1; }
+p4na()  { find ${1:-.} -type f -print | egrep -v '\.git/|/build-' | p4 -x- fstat 2>&1 > /dev/null | sed -ne 's/ - no such file.*//p'; }
+p4w()   { p4 where $*| sed 's/.* //'; }
+
+path() {
+    typeset var=${1:-PATH}
+    eval "env |egrep -i ^$var[a-z_0-9]*=[^\(]" | sed '/=(/!{s|=|:|; s|:|\
+    |g; s|'$HOME'|~|g; }'
+}
+
+pds() { perl -MData::Dumper -MStorable -le 'print Dumper {map {$_ => [keys %{retrieve $_}]} @ARGV}' $*; }
+pds() { perl -MData::Dump=dump -MStorable -le 'print dump {map {$_ => [keys %{retrieve $_}]} @ARGV}' $*; }
+pdj() { perl -MData::Dump=dump -MJSON -le 'local $/; dump from_json<>' $*; }
+
+realpath() { perl -MCwd=realpath -le 'print realpath($_) for @ARGV' ${*:-.}; }
+
+setws() {
+    local SWAPROJ=//depot/main/swa/projects
+    WS_BRANCH_ALIAS=$1
+    set -- `p4 dirs $SWAPROJ/*$1* | sed s,.*/,,`
+    case $# in
+    0) echo No matches in $SWAPROJ/ >&2 ;;
+    1)  branch=$SWAPROJ/$1/...
+        WS_P4ROOT=$branch
+        WS_TOPDIR=$(p4loc $SWAPROJ/$1)
+        WS_BRANCHNAME=projects/$1
+        WS_PROJNAME=$1/...
+        cd $WS_TOPDIR
+        ;;
+    *) echo "Multiple matches: $*" >&2 ;;
+    esac
+
+}
+
+tl() { let lines=$LINES-4; tail -$lines $*; }
+
+up() { 
+    # With no arguments, give a select-list to choose from
+    local COLUMNS=20
+    select REPLY in `perl -le '$_=$ENV{PWD}; print while s,/[^/]*$,,'`; do break; done
+    [ ! -d $REPLY ] || pushd $REPLY
+}
+
+vd() { P4DIFF=vimdiff p4 diff `realpath $*`; }
+vdgit() { git difftool --tool=vimdiff --no-prompt $*; }
+
+wi() {
+    EDITOR=${EDITOR:-vi}
+    PATH=$PATH  # Forced reset of path cache
+    if alias $1 2>&- && egrep -q ^alias.$1 ~/.bashrc
+    then $EDITOR +/"alias.$1" ~/.bashrc; . ~/.bashrc
+    elif typeset -F $1 >/dev/null
+    then shopt -s extdebug; set -- $(typeset -F $1); shopt -u extdebug
+	# With extdebug on, "typeset -F" prints: funcname lineno filename
+	$EDITOR +$2 $3; . $3
+    else    # Parse file[:pos]
+            set -- $(echo $(which $1))
+	    if [ $# -gt 0 ]
+	    then
+		    set -- $(file -L $1)
+		    case "$*" in 
+		    *\ script*|*\ text*) $EDITOR ${1%:} ;;
+		    *)			echo >&2 $*
+		    esac
+	    fi
+    fi
+}
+
+zr() { for x; do dd of=$x bs=$(stat -c%s %x) if=/dev/zero count=1; done; }
+
+refox () 
+{ 
+    pkill firefox
+    rm -f ~/.mozilla/firefox/[a-z]?????*.default/.parentlock
+    ( nohup /usr/bin/firefox > /dev/null 2>&1 & )
+}

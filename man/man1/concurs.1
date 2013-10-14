@@ -1,0 +1,73 @@
+.TH concurs 1 "Novermber 15, 2007"
+.SH NAME
+concurs \- synchronize concurrent processes for repeatable tests.
+.SH SYNOPSIS
+.B concurs
+.RI [ options ]
+.br
+.SH DESCRIPTION
+This manual page documents the
+.B concurs
+synchronization daemon.
+.PP
+.B concurs
+with no argument
+logs the events of concurrent processes instrumented with
+.B concur(3).
+.B concurs 
+logs the  to stdout as a "script" of events.
+.B concurs
+with a script filename
+.I playback
+monitors those same processes, forcing them to sequence
+their actions according to the recorded script.
+.br
+Processes communicate with
+.B concurs
+via TCP port 
+.B 3076.
+.SH ARGUMENTS
+.TP
+.B script_file
+Read event history steps from the given
+.I script_file
+where each line may be:
+.TP
+.I # <any text>
+ ... ignored
+.TP
+.I <name>:<event>
+ ... where
+.I <name>
+is a process name, and
+.I <event>
+is an event identifier supplied to the
+.B concur(3)
+function in that process. An event identifier can be any string.
+.SH ENVIRONMENT
+.TP
+.B CONCUR
+must be different for every collaborating process.
+It is of the form
+.B <name>[:<host>]
+where
+.I <name>
+is the process name logged and checked by 
+.B concurs
+, and 
+.I <host>
+is an optional host name or IP address, specifying where the
+.B concurs
+daemon is running.
+.br
+.SH LICENSE
+The concurs daemon is copyright (c) 2007 by Sophos PLC.
+.br
+.SH SEE ALSO
+.B concur(3)
+.br
+.B http://ca.sophos.com
+.SH AUTHOR
+The concurs daemon was written by Mischa Sandberg
+.B <mischa@ca.sophos.com>
+.br

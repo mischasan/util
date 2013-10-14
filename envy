@@ -1,0 +1,17 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+$ENV{'~'} = $ENV{HOME};
+for my $arg (@ARGV) {
+    my $minval = $arg;
+    for my $var (keys %ENV) {
+	my $len = length(my $val = $ENV{$var});
+	next if substr($arg,0,$len) ne $val;
+	my $tail = substr($arg,$len);
+	my $newval = ($tail =~ /^\w/ ? "\${$var}" : "\$$var") . $tail;
+	$minval = $newval if length($minval) > length($newval)
+    }
+    $minval =~ s{^\$~}{~};
+    print "$minval\n";
+}

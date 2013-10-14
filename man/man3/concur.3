@@ -1,0 +1,113 @@
+.\" $FreeBSD: src/lib/libc/stdlib/hcreate.3,v 1.5 2005/01/20 09:17:04 ru Exp $
+.\"
+.Dd May 8, 2001
+.Os
+.Dt CONCUR 3
+.Sh NAME
+.Nm concur_init, concur, concur_exit
+.Nd instrument concurrency for tests
+.Sh LIBRARY
+.Lb libsophox
+.Sh SYNOPSIS
+.In concur.h
+.Ft void
+.Fn concur_init
+.Ft void
+.Fn concur "const char *fmt, ..."
+.Ft void
+.Fn concur_exit
+.Sh DESCRIPTION
+The
+.Fn concur_init
+.Fn concur_exit,
+and
+.Fn concur
+functions permit testing of concurrent processes, across multiple machines,
+in a way that can enforce specific sequences of actions, including start-up
+orders and race conditions.
+.Pp
+If the environment variable
+CONCUR
+is set to a non-empty string, the
+.Fn concur_init
+function connects to a 
+.Xr concurs 1
+server, with 
+$CONCUR
+as a process name. If CONCUR is set to <name>:<host>,
+.Fn concur_init 
+connects to a 
+.Xr concurs
+server on <host>; otherwise, it connects to one on localhost.
+Calls to 
+.Fn concur
+then either record, or wait for, specified events.
+.Pp
+The
+.Fn concur_exit
+function closes the connection, if any.
+.Pp
+In "recording" mode, the 
+.Xr concurs 1
+server will print
+<process_name>:<event_string>
+lines.
+In "playback" mode,
+concurs
+will block each collaborating process until it sees the corresponding
+<process_name>:<event_string>
+in its input.
+The tester may resequence lines for different processes in order to force
+different orders of execution for "asynchronous" steps. This is more
+efficient than inserting
+.Xr sleep 2
+calls to (hopefully) follow different process execution orders.
+.Sh RETURN VALUES
+None.
+.Sh ERRORS
+If the concurs server cannot be found, concur fails silently,
+as if the CONCUR environment variable had never been set.
+.Sh NETWORK
+concurs uses TCP port 5305.
+.Sh EXAMPLES
+The following example reads in strings followed by two numbers
+and stores them in a hash table, discarding duplicates.
+It then reads in strings and finds the matching entry in the hash
+table and prints it out.
+.Bd -literal
+#include <stdio.h>
+#include <stdlib.h>
+#include <concur.h>
+
+int
+main(void)
+{
+	int		i;
+	FILE		fp = fopen("test.data", "w+");
+
+	setvbuf(fp, NULL, _IOLBF, 0);
+	system("ssh dev@logbox 'concurs >getset.log' &");
+
+	if (fork()) {
+		putenv("CONCUR=setter:logbox");
+		concur_init();
+		for (i = 0; i < 1000; ++i) {
+			concur("set %d", i);
+			rewind(fp);
+			fprintf(fp, "%d\n", i);
+		}
+	} else {
+		putenv("CONCUR=getter:logbox");
+		concur_init();
+		while (fscanf(fp, "%d", &i) && i < 1000) {
+			concur("got %d", i);
+		}
+	}
+
+	concur_exit();	/* Strictly to prove lack of leaks */
+}
+.Ed
+.Sh SEE ALSO
+.Xr concurs 1
+.Sh BUGS
+The interface permits the use of only one TCP port (daemon) at a time.

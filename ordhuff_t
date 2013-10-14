@@ -1,0 +1,3 @@
+#!/bin/sh
+cd $util
+./ordhuff_x t/freq
