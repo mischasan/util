@@ -1,4 +1,6 @@
-//-----|-------|-------|-------|-------|-------|-------|-------|
+// Copyright (C) 2009-2013 Sophos LLC. All rights reserved.
+//-------------------------------------------------------------------
+
 #include "msutil.h"
 #include <assert.h>
 #include "_ssearch.h"

@@ -1,3 +1,5 @@
+// Copyright (C) 2009-2013 Sophos LLC. All rights reserved.
+//-------------------------------------------------------------------
 // ssearch: multi-string search using SSE2 ops.
 //      This uses a variation on WuManber to search a block of
 //      text for many strings.

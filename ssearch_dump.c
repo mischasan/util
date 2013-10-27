@@ -1,3 +1,6 @@
+// Copyright (C) 2009-2013 Sophos LLC. All rights reserved.
+//-------------------------------------------------------------------
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>

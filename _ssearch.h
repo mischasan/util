@@ -1,3 +1,5 @@
+// Copyright (C) 2009-2013 Sophos LLC. All rights reserved.
+//-------------------------------------------------------------------
 #ifndef _SSEARCH_H_
 #define _SSEARCH_H_
 

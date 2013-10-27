@@ -108,6 +108,13 @@ Install         = if [ "$(strip $2)" ]; then mkdir -p $1; pax -rw -pe -s:.*/:: $
                 ; $(call Install,$(DESTDIR)/sbin,   $($*.sbin)) \
                 ; $(call Install,$(DESTDIR)/include,$($*.include))
 
+#$(DESTDIR)/bin/%	: %; $(call Install,$(@D),$<)
+#$(DESTDIR)/etc/%	: %; $(call Install,$(@D),$<)
+#$(DESTDIR)/include/% 	: %; $(call Install,$(@D),$<)
+#$(DESTDIR)/ini/%	: %; $(call Install,$(@D),$<)
+#$(DESTDIR)/lib/% 	: %; $(call Install,$(@D),$<)
+#$(DESTDIR)/sbin/% 	: %; $(call Install,$(@D),$<)
+
 profile         : BLD := profile
 %.profile       : %.test    ;@for x in $($*.test:.pass=); do gprof -b $$x >$$x.prof; done
 
