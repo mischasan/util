@@ -151,8 +151,7 @@ rsort(RSREC ** recv, int nrecs)
     memset(mdata[0], 0, sizeof(mdata[0]));
 
     // pdata[0]: a dummy list terminator; simplifies a loop 
-    pdata[0] = (PART) {
-    0, NULL, NULL};
+    pdata[0] = (PART) { 0, NULL, NULL};
 
     // Initial srcv: a single range of the entire input 
     srcv[0] = (RANGE) {recv, recv + nrecs};

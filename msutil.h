@@ -232,6 +232,9 @@
 #   error "need byteswap intrinsics"
 #endif
 
+// This is the gcc way 
+#define UNALIGNED __attribute__((align(1))
+
 // Defeat gcc 4.4 cdefs.h defining __wur = __attribute((unused-result))
 //	on system calls where you just don't care (vasprintf...)
 // This requires <stdint.h> to be included first.

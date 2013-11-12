@@ -30,7 +30,7 @@ main(void)
 
     MEMREF  mr = fileref(__FILE__);
     ok(!nilref(mr), "fileref("__FILE__")");
-    ok(!memcmp(mr.ptr, "#include", 8), "readable");
+    ok(!memcmp(mr.ptr, "// Copyright", 12), "readable");
     ok(!memcmp(mr.ptr + mr.len - 7, "\n//EOF\n", 7), "to the end");
     defileref(mr);  // coverage
 
