@@ -41,7 +41,8 @@ while (<>) {
 
 $x{'#File'} = ['Funcs   % Lines   % Jumps   % Taken   % Calls   %'];
 my $wid = 5; for (map {length} keys %x) { $wid = $_ if $wid < $_; }
-printf("%-${wid}s %s\n", $_, "@{$x{$_}}") for sort grep {/./} keys %x;
+$_->[1] ||= '    ? ???' for values %x;
+printf("%-${wid}s %s\n", $_, "@{$x{$_}}") for sort grep {$_ && /./} keys %x;
 my $bad = scalar keys %bad;
 print "Coverage less than req'd ($req) in $bad/$nf files\n" if $bad;
 exit $bad;
