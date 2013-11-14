@@ -18,7 +18,7 @@ sub add {
                                             ($fail ? $NORMAL : ''));
 }
 while (<>) {
-    $f = $1 if m{^File '(?:.*/)?(.*)'} && !m{/usr/[/\w]*include};
+    $f = $1 if m{^File '(?:.*/)?(.*)'} && !m{/usr/[^:\s]*include};
     next if !$f;
     if (1 == length) {  # empty line after ":creating '...gcov'"
         open my $fh, "$f.gcov" or die "covsum: cannot find '$f.gcov'\n";
