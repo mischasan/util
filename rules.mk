@@ -33,6 +33,8 @@ DESTDIR         ?= $(PREFIX)
 OSNAME          := $(shell uname -s)
 
 CFLAGS.         = -O9
+# HACK until I figure out how to choose the most recent compiler @simba
+CC              = /usr/bin/gcc44
 
 CFLAGS.cover    = --coverage -DNDEBUG
 LDFLAGS.cover   = --coverage
@@ -49,7 +51,7 @@ LDLIBS.FreeBSD  = -lm
 LDLIBS.Linux    = -ldl -lm -lresolv
 
 # Before gcc 4.5, -Wno-unused-result was unknown and causes an error.
-Wno-unused-result := $(shell gcc -dumpversion | awk '$$0 >= 4.5 {print "-Wno-unused-result"}')
+Wno-unused-result := $(shell $(CC) -dumpversion | awk '$$0 >= 4.5 {print "-Wno-unused-result"}')
 
 # XXX -funsigned-char would save time.
 CFLAGS          += -ggdb -MMD -fdiagnostics-show-option -fstack-protector --param ssp-buffer-size=4 -fno-strict-aliasing
@@ -59,7 +61,7 @@ CFLAGS          += -Wno-attributes $(CFLAGS.$(BLD))
 # -D_FORTIFY_SOURCE=2 on some plats rejects any libc call whose return value is ignored.
 #   For some calls (system, write) this makes sense. For others (vasprintf), WTF?
 
-CPPFLAGS        += -mtune=native -I$(PREFIX)/include -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD))
+CPPFLAGS        += -I$(PREFIX)/include -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD))
 LDFLAGS         += -L$(PREFIX)/lib $(LDFLAGS.$(BLD))
 LDLIBS          += $(LDLIBS.$(OSNAME))
 

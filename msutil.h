@@ -178,6 +178,12 @@
 
 #ifndef MSUTIL_H
 #define MSUTIL_H
+#ifdef __cplusplus
+extern "C" {
+#if 0
+}
+#endif
+#endif
 
 // Convenient format strings constants e.g. printf("%"FSIZE"X", sizeof thing);
 //  F64:int64_t  FPTR:intptr_t  FSIZE:size_t 
@@ -715,5 +721,12 @@ extern int  const nerrnames;
 
 extern char const *signame[];
 extern int  const nsignames;
+
+#ifdef __cplusplus
+#if 0
+{
+#endif
+}
+#endif
 
 #endif//MSUTIL_H

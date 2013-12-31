@@ -1,4 +1,8 @@
 -:[bs]ug  +:done  x:nope  ^:forwarded  #:note  ?:question
+
+Wed Nov 27 2013
+- @simba glibc (2.5-118) has no support for accept4. Fix sock.c
+
 Fri Sep 06 2013
 - "install" should export the SHA1 of the source so that there is a backtrail.
 

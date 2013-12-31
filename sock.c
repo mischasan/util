@@ -111,7 +111,7 @@ sock_accept(int skt)
 
     int fd;
     do fd =
-#           if !defined(__FreeBSD__)
+#           if !defined(__FreeBSD__) && 0
             has_accept4 ? accept4(skt, NULL, NULL, sock_cloexec) :
 #           endif
             accept(skt, NULL, NULL);
