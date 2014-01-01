@@ -23,7 +23,7 @@ util.include    = $(patsubst %,$(util)/%, concur.h msutil.h psearch.h rsort.h sh
 
 # Inputs to "make clean cover":
 all		+= util
-util.clean 	= $(util)/psearch.tmp $(util)/words $(util)/88.tab $(util)/osho.txt
+clean 	        += $(util)/{psearch,match,dump}.tmp $(util)/words $(util)/88.tab $(util)/osho.txt
 util.cover      = $(patsubst %,$(util)/%, fnvhash.c map.c msutil.c ordhuff.c psearch.c psearch_create.c psearch_dump.c psearch_file.c reffile.c rsort.c scan.c sock.c ssearch.c ssearch_dump.c tolog.c uri.c xmutil.c)
 
 #---------------- PUBLIC TARGETS (see rules.mk):
