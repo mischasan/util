@@ -34,7 +34,8 @@ int main(void)
     plan_tests(11);
 
     char        *foo = malloc(100000);
-    void        *dlp = dlopen("mac.so", RTLD_LAZY);
+    strcat(strcpy(foo, getenv("util") ? getenv("util") : "."), "/mac.so");
+    void        *dlp = dlopen(foo, RTLD_LAZY);
     vvfunc      fnp = (vvfunc) dlsym(dlp, "macfn");
 
     ok(maccess(&foo, sizeof(foo), 0), "%p stack local", &foo);
