@@ -9,7 +9,7 @@ char *Railgun7w(char *pbTarget, int cbTarget, char *pbPattern, int cbPattern);
 #endif
 
 //==================================================================
-typedef uint32_t uint;
+typedef uint32_t uint;  //XXX time to add u64 logic
 typedef uint8_t  byte;
 
 #define HaystackThresholdSekireiTchittoGritto 961   // Quadruplet works up to this value, if bigger then BMH2 takes over.
@@ -27,6 +27,7 @@ static byte *bloom12(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPatt
 
 static uint fold4(byte *tp);
 static uint hash12(byte *tp);
+static inline uint intdiff(byte *pbOne, byte *pbTwo, uint cbLen);
 
 char *
 Railgun7w(char *pbTarget, int cbTarget, char *pbPattern, int cbPattern)
@@ -48,18 +49,16 @@ Railgun7w(char *pbTarget, int cbTarget, char *pbPattern, int cbPattern)
 static byte *
 check3(byte *pbTarget, byte *pbPattern, uint cbTarget)
 {
-    byte *pbTargetMax = pbTarget + cbTarget;
-    pbTarget += 3;
+    byte *pbTargetMax = pbTarget + cbTarget - 3, A = pbPattern[0];
+    uint ulHashPattern = ((uint)A << 8) + pbPattern[2];
+    do { 
+        if (ulHashPattern == ((uint)pbTarget[0] << 8) + pbTarget[2]
+                && pbPattern[1] == pbTarget[1])
+            return pbTarget;
 
-    uint ulHashPattern = (pbPattern[0] << 8) + pbPattern[2];
-    do {
-        if (ulHashPattern == ((uint)pbTarget[-3] << 8) + pbTarget[-1]
-                && pbPattern[1] == pbTarget[-2])
-            return pbTarget - 3;
-
-        if ((byte)(ulHashPattern >> 8) != pbTarget[-2]) {
+        if (pbTarget[1] != A) {
             pbTarget++;
-            if ((byte)(ulHashPattern >> 8) != pbTarget[-2])
+            if (pbTarget[1] != A)
                 pbTarget++;
         }
     } while (++pbTarget <= pbTargetMax);
@@ -126,22 +125,14 @@ bloom2(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPattern)
 
     for (i = 0; i <= cbTarget - cbPattern; i += skip) {
         //MSS overlapping loads of uint16 ... see G's comment on registers in check4
-        if (!filter[*(uint16_t*) &pbTarget[i + cbPattern - 2]]) {   // Test YZ
+        if (!filter[*(uint16_t*) &pbTarget[i + cbPattern - 2]])    // Test YZ
             skip = cbPattern - 1;
-        } else if (!filter[*(uint16_t*) &pbTarget[i + cbPattern - 4]] || //XXX Testing WX || XY may save one lookup.
-                   !filter[*(uint16_t*) &pbTarget[i + cbPattern - 3]]) { // Test XY
+        else if (!filter[*(uint16_t*) &pbTarget[i + cbPattern - 4]] || //XXX Testing WX || XY may save one lookup.
+                 !filter[*(uint16_t*) &pbTarget[i + cbPattern - 3]]) // Test XY
             skip = cbPattern - 3;
-        } else {
-            if (*(uint*) &pbTarget[i] == ulHashPattern) {
-                int count = cbPattern - 3;
-                // Handrolled memcmp using uints:
-                while (count > 0 && *(uint*) (pbPattern + count - 1) == *(uint*) (&pbTarget[i] + count - 1))
-                    count = count - 4;
-                if (count <= 0)
-                    return pbTarget + i;
-            }
-            skip = 1;
-        }
+        else if (*(uint*)&pbTarget[i] == ulHashPattern && !intdiff(pbTarget + i, pbPattern, cbPattern))
+            return pbTarget + i;
+        else skip = 1;
     }
 
     return NULL;
@@ -158,18 +149,13 @@ bloom4(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPattern)
         filter[ fold4(pbPattern + i) ] = 1;
 
     for (i = 0; i <= cbTarget - cbPattern; i += skip) {
-        if (!filter[ fold4(pbTarget + cbPattern - 4) ]) {
+        if (!filter[ fold4(pbTarget + cbPattern - 4) ])
             skip = cbPattern - 3;
-        } else if (!filter[ fold4(pbTarget + i + cbPattern - 8) ]) {
+        else if (!filter[ fold4(pbTarget + i + cbPattern - 8) ])
             skip = cbPattern - 7;
-        } else {
-            int count = cbPattern - 3;
-            while (count > 0 && *(uint*) (pbPattern + count - 1) == *(uint*) (&pbTarget[i] + (count - 1)))
-                count = count - 4;  // - order, of course order 4 is much more SWEET&CHEAP - less loops
-            if (count <= 0 && *(uint*) &pbTarget[i] == ulHashPattern)
-                return pbTarget + i;
-            skip = 1;
-        }
+        else if (*(uint*)&pbTarget[i] == ulHashPattern && !intdiff(pbTarget + i, pbPattern, cbPattern))
+            return pbTarget + i;
+        else skip = 1;
     }
 
     return NULL;
@@ -194,16 +180,11 @@ bloom12(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPattern)
         //XXX This would get a performance benefit by changing hash12 into a rolling hash!
         // especially when skip == 1
         uint h = hash12(pbTarget + i + cbPattern - 12 + 0);
-        if (filter[h >> 3] & (1 << (h & 7))) {
-            skip = 1;
-            int count = cbPattern - 4 + 1;
-            while (count > 0 && *(uint*) (pbPattern + count - 1) == *(uint*) (&pbTarget[i] + (count - 1)))
-                count = count - 4;  // - order, of course order 4 is much more SWEET&CHEAP - less loops
-            if (count <= 0 && *(uint*) &pbTarget[i] == ulHashPattern)
-                return pbTarget + i;
-        } else {
+        if (!(filter[h >> 3] & (1 << (h & 7))))
             skip = cbPattern - 11;
-        }
+        else if (*(uint*)&pbTarget[i] == ulHashPattern && !intdiff(pbTarget + i, pbPattern, cbPattern))
+            return pbTarget + i;
+        else skip = 1;
     }
 
     return NULL;
@@ -232,4 +213,13 @@ hash12(byte *tp)
     hash32 = (hash32 ^ (hash32 >> 16)) & HASHMASK;
 
     return hash32;
+}
+
+static inline uint
+intdiff(byte *pbOne, byte *pbTwo, uint cbLen)
+{
+    int i = cbLen;
+    while ((i -= sizeof(uint)) > 0)
+         if (*(uint*)&pbOne[i] != *(uint*)&pbTwo[i]) return 1;
+    return 0;
 }
