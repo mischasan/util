@@ -357,10 +357,6 @@ void mmhash3_x86_16(uint8_t const *key, int len, uint8_t out[16], uint32_t seed)
 void mmhash3_x64_04(uint8_t const *inp, int len, uint8_t out[ 4], uint32_t seed);
 void mmhash3_x64_08(uint8_t const *inp, int len, uint8_t out[ 8], uint32_t seed);
 void mmhash3_x64_16(uint8_t const *key, int len, uint8_t out[16], uint32_t seed);
-
-uint32_t rollhash_arg(uint32_t num);
-uint32_t rollhash_init(uint8_t *data, uint32_t leng);
-uint32_t rollhash_step(uint32_t arg, uint32_t hash, uint8_t old, uint8_t new);
 //--------------|-----------------------------------------------
 // EZ socket library interface: nothing but "C" types and SOCK_OPT.
 typedef enum {
@@ -582,6 +578,33 @@ STR STRcpy(STR str, char const *s);
 
 static inline MEMREF STRREF(STR s)
 { return (MEMREF){STRptr(s), STRlen(s)}; }
+//--------------|-----------------------------------------------
+
+#define ROLLHASH_MOD 8355967
+
+// rollhash_arg returns (256 ^ (leng - 1) mod ROLLHASH_MOD).
+//  Most efficient to compute this once then pass it to rollhash_step.
+//  Calling   rollhash_step(1, hash, data[i]*arg, data[i+leng])
+//  amounts to the same thing. 
+
+static inline uint32_t rollhash_arg(uint32_t leng)
+{
+    uint32_t arg = 1;
+    while (--leng) arg = arg * 256 % ROLLHASH_MOD;
+    return arg;
+}
+
+static inline uint32_t rollhash_init(uint8_t const*data, uint32_t leng)
+{
+    uint32_t hash = 0;
+    while (leng--) hash = (hash * 256 + *data++) % ROLLHASH_MOD;
+    return hash;
+}
+
+static inline uint32_t rollhash_step(uint32_t arg, uint32_t hash, uint8_t old, uint8_t new)
+{
+    return ((hash + 256*ROLLHASH_MOD - old * arg) % ROLLHASH_MOD * 256 + new) % ROLLHASH_MOD;
+}
 //--------------|-----------------------------------------------
 static inline int bsrl(int x) 
 { asm("bsrl %0,%0":"=r"(x):"r"(x)); return x; }
