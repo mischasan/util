@@ -5,12 +5,12 @@ export util ?= .
 # util.progs: programs for non-tap (e.g. perf) tests.
 # util.tpgms: test programs requiring no args
 
-util.c          = $(patsubst %,$(util)/%, acstr.c bitmat.c bloom.c bndmem.c cessuhash.c concur.c enum.c fnvhash.c jlu32.c maccess.c map.c mm3hash.c msutil.c ordhuff.c phkeys.c psearch.c psearch_create.c psearch_dump.c psearch_file.c rsort.c scan.c sha1.c sha256.c sheap.c sock.c ssearch.c ssearch_dump.c thread.c tolog.c uri.c xmutil.c ymd.c)
+util.c          = $(patsubst %,$(util)/%, acstr.c bitmat.c bloom.c bndmem.c cessuhash.c concur.c enum.c fnvhash.c jlu32.c maccess.c map.c mm3hash.c msutil.c ordhuff.c phkeys.c psearch.c psearch_create.c psearch_dump.c psearch_file.c rollhash.c rsort.c scan.c sha1.c sha256.c sheap.c sock.c ssearch.c ssearch_dump.c thread.c tolog.c uri.c xmutil.c ymd.c)
 util.progs      = $(patsubst %,$(util)/%, bloom_x brk_x gai hash_x memx nolock sock_x sort_x stress thread_x tt)
 
 #util_tpgms      = bitmat_t bloom_t maccess_t msutil_t scan_t sheap_t sock_t subref_t tolog_t udp_t uri_t xmutil_t
 util_tpgms      = bitmat_t bloom_t bndm_t maccess_t msutil_t scan_t sheap_t sock_t subref_t tolog_t udp_t uri_t 
-util.tpgms      = $(patsubst %,$(util)/%,      $(util_tpgms) fnv_x map_x ordhuff_x psearch_x psearch_mmap_x rsort_x ssearch_x str_x)
+util.tpgms      = $(patsubst %,$(util)/%,      $(util_tpgms) fnv_x map_x ordhuff_x psearch_x psearch_mmap_x rollhash_x rsort_x ssearch_x str_x)
 util.test       = $(patsubst %,$(util)/%.pass, $(util_tpgms) fnv_t map_t ordhuff_t psearch_t rsort_t ssearch_t str_t)
 util.pgms       = $(patsubst %,$(util)/%, concurs realpath)
 util.scripts    = $(patsubst %,$(util)/%, amok covsum deas envy hist ifdent mkpg pg pgconf pglist pgps proj.fns pspace rules statpg statps tab)

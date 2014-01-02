@@ -109,6 +109,8 @@
 //      udp_send(skt, buf, len, ip, port)
 //      udp_recv(skt, buf, len, ip, &port)
 //
+// ROLLHASH: rolling hash. See rollhash_t.c for usage.
+//
 // MISCELLANEOUS
 //	Some of these are useful; some are just experimental leftovers.
 //
@@ -355,6 +357,10 @@ void mmhash3_x86_16(uint8_t const *key, int len, uint8_t out[16], uint32_t seed)
 void mmhash3_x64_04(uint8_t const *inp, int len, uint8_t out[ 4], uint32_t seed);
 void mmhash3_x64_08(uint8_t const *inp, int len, uint8_t out[ 8], uint32_t seed);
 void mmhash3_x64_16(uint8_t const *key, int len, uint8_t out[16], uint32_t seed);
+
+uint32_t rollhash_arg(uint32_t num);
+uint32_t rollhash_init(uint8_t *data, uint32_t leng);
+uint32_t rollhash_step(uint32_t arg, uint32_t hash, uint8_t old, uint8_t new);
 //--------------|-----------------------------------------------
 // EZ socket library interface: nothing but "C" types and SOCK_OPT.
 typedef enum {
