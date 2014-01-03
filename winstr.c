@@ -1,4 +1,4 @@
-#ifndef STR_X
+#ifndef STRESS_C
 #   include <stdint.h>
 #   include <string.h>
 #   ifdef __linux__

@@ -242,6 +242,7 @@ extern "C" {
 
 // This is the gcc way 
 #define UNALIGNED __attribute__((align(1))
+#define NORETURN  __attribute__((noreturn))
 
 // Defeat gcc 4.4 cdefs.h defining __wur = __attribute((unused-result))
 //	on system calls where you just don't care (vasprintf...)
@@ -648,7 +649,7 @@ int	bitwid(unsigned u);
 char*   bndmem(char *tgt, int tgtlen, char *pat, int patlen);
 int     cmpxm(void const*src, void const*dst, int nbytes);
 MEMBUF	chomp(MEMBUF buf);  // trailing whitespace => \0's
-void    die(char const *fmt, ...);
+void    die(char const *fmt, ...) NORETURN;
 int     findbit_0(uint8_t const*vec, int nbytes);
 int     findbit_1(uint8_t const*vec, int nbytes);
 #ifndef __BSD_VISIBLE

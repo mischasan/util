@@ -21,11 +21,10 @@
 #include "msutil.h"
 
 static char *bergstr(char *phaystack, char *pneedle);
-extern char *strchrs(char *tgt, char *pat);
+//scanstr in msutil.h
 static char *winstr(char *tgt, char *pat);
-static char *Railgun7a(char *tgt, int tgtlen, char *pat, int patlen);
 static char *Railgun7g(char *pbTarget, int cbTarget, char *pbPattern, int cbPattern);
-static char *Railgun7h(char *pbTarget, int cbTarget, char *pbPattern, int cbPattern);
+static char *Railgun7w(char *pbTarget, int cbTarget, char *pbPattern, int cbPattern);
 
 typedef char *(*MEMF)(char *tgt, int tgtlen, char *pat, int patlen);
 typedef char *(*STRF)(char *tgt, char *pat);
@@ -47,12 +46,10 @@ main(int argc, char **argv)
               "Compares STRSTR (SSE4.2) with:\n"
               "- SSE2: scan for leading pair of chars using SSE2\n"
               "- BERG: Steven van den Berg's strstr\n"
-              "- CHRS: use (SSE2) strchr then memcmp\n"
               "- WINS: use 2,3,4-byte sliding window\n"
               "- BNDM: Backward Non-deterministic DAWG matching (suffix shift-and)\n"
-              "- RG7A: Georgi's Railgun version 7-Elsiane\n"
               "- RG7G: Georgi's Railgun version 7-Gulliver\n"
-              "- RG7G: Georgi's Railgun version 7-Hasherezade\n");
+              "- RG7W: Georgi's Railgun version 7-Wolfram\n");
     argv += verbose = !strcmp(argv[1], "-v");
     MEMBUF x = chomp(slurp(argv[1]));
     if (nilbuf(x)) die(": cannot read %s:", argv[1]);
@@ -60,7 +57,7 @@ main(int argc, char **argv)
     MEMREF  *rv = refsplit(x.ptr, '\n', &nr);
     char    **exp = malloc(nr * sizeof(*exp));
 
-    if (verbose) printf("SSE2 BERG CHRS WINS BNDM RG7a RG7g RG7h nchrs=%"FSIZE"d\n", x.len);
+    if (verbose) printf("SSE2 BERG WINS BNDM RG7g RG7w nchrs=%"FSIZE"d\n", x.len);
     for (a = 3; argv[a]; ++a) {
         patlen = strlen(argv[a]);
         memset(exp, -1, nr * sizeof(*exp));
@@ -70,23 +67,19 @@ main(int argc, char **argv)
         DO_STR(tbase, strstr);
         DO_STR(tsse2, sse2str);
         DO_STR(tberg, bergstr);
-        DO_STR(tchrs, strchrs);
         DO_STR(twins, winstr);
         DO_MEM(tbndm, bndmem);
-        DO_MEM(trg7a, Railgun7a);
         DO_MEM(trg7g, Railgun7g);
-        DO_MEM(trg7h, Railgun7h);
+        DO_MEM(trg7w, Railgun7w);
 #           undef  DO_MEM
 #           undef  DO_STR
-        if (verbose) printf("%4.0f %4.0f %4.0f %4.0f %4.0f %4.0f %4.0f %4.0f P=%d '%s'\n",
+        if (verbose) printf("%4.0f %4.0f %4.0f %4.0f %4.0f %4.0f P=%d '%s'\n",
                tsse2 * 100 / tbase,
                tberg * 100 / tbase,
-               tchrs * 100 / tbase,
                twins * 100 / tbase,
                tbndm * 100 / tbase,
-               trg7a * 100 / tbase,
                trg7g * 100 / tbase,
-               trg7h * 100 / tbase,
+               trg7w * 100 / tbase,
                patlen, argv[a]);
     }
 
@@ -151,11 +144,10 @@ do_str(char const *name, STRF fn, MEMREF const*rv, int nr, int count, char *pat,
     return tick() - start;
 }
 
-// STR_X blocks some duplicate declarations.
-#define  STR_X 1
+// STRESS_C blocks some duplicate declarations.
+#define  STRESS_C 1
 #include "bergstr.c"
 #include "bndmem.c"
-#include "railgun7a.c"
 #include "railgun7g.c"
-#include "railgun7h.c"
+#include "railgun7w.c"
 #include "winstr.c"

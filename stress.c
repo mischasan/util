@@ -32,7 +32,7 @@ static char *Railgun7w(char *pbTarget, int cbTarget, char *pbPattern, int cbPatt
 #define sse2str scanstr
 
 int
-main(void)
+main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
     int         count = 10001;  // count MUST be odd, or hash is always zero!
@@ -49,8 +49,15 @@ main(void)
                          50, 49, 48, 47, 46, 34,  33,  32,  31,  30, 23, 22, 21,
                          18,  17,  16,  15,  14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 0 };
     char        pat[9999], tgt[99999];
+    int         lo, hi;
+    switch (argc) {
+    case 1: lo = -(hi = 4); break;
+    case 2: lo = -(hi = atoi(argv[1])); break;
+    case 3: lo = atoi(argv[1]), hi = atoi(argv[2]); break;
+    default: die("Usage: stress <limit>  or  stress <min> <max>");
+    }
 
-    for (m = -3; m < 6; m++) {
+    for (m = lo; m <= hi; m++) {
         printf("M TARG. PATT | SSE2 BERG WINS BNDM | RG7g RG7h RG7s RG7w best winner(s)\n");
         for (t = 0; (tgtlen = tv[t]); ++t) {
             for (p = 0; (patlen = pv[p]); ++p) {
@@ -130,8 +137,8 @@ main(void)
     return 0;
 }
 
-// STR_X blocks some duplicate declarations.
-#define  STR_X 1
+// STRESS_C blocks some duplicate declarations.
+#define  STRESS_C 1
 #include "bergstr.c"
 #include "bndmem.c"
 #include "railgun7g.c"

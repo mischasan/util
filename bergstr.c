@@ -28,7 +28,7 @@
  *
  * Stephen R. van den Berg, berg@pool.informatik.rwth-aachen.de
  */
-#ifndef STR_X
+#ifndef STRESS_C
 char *bergstr(char *phaystack, char *pneedle);
 #endif
 

@@ -1,14 +1,15 @@
 // railgun7w, copyleft 2013-Nov-11, Kaze.
 // This code presumes unaligned loads of (uint{16,32}) is okay.
+
 // This is sanmayce's SeikiReigan/Wolfram code, reorganized so that
 //  the decision logic is in one place and common code (inlined)
-//  is easy to see and improve.
+//  is easy to see and improve. All copyright is assigned to him.
 
-#include <assert.h>
-
-#ifndef STR_X   // stress.c test harness inlines this file.
+#ifndef STRESS_C   // stress.c test harness inlines this file after including msutil.h
 #include <stdint.h>
-#include <stdlib.h> // abort NULL
+#ifndef NULL
+#   define NULL ((void*)0)
+#endif
 char *Railgun7w(char *pbTarget, int cbTarget, char *pbPattern, int cbPattern);
 #endif
 
@@ -29,11 +30,12 @@ static byte *bloom2(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPatte
 static byte *bloom4(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPattern);
 static byte *bloom12(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPattern);
 
-static uint foldp(byte *tp);
-static uint hash12(byte *tp);
-static inline uint intdiff(byte *pbOne, byte *pbTwo, uint cbLen);
 static inline uint foldu(uint x) { return (x >> 16) ^ (x & 0xFFFF); }
-#ifndef ROLLHASH_MOD
+static inline uint foldp(byte *tp) { return foldu(*(uint*)tp); }
+//static uint hash12(byte *tp);
+static inline uint intdiff(byte *pbOne, byte *pbTwo, uint cbLen);
+
+#ifndef STRESS_C
 static uint32_t rollhash_arg(uint32_t leng);
 static uint32_t rollhash_init(uint8_t const*data, uint32_t leng);
 static uint32_t rollhash_step(uint32_t arg, uint32_t hash, uint8_t old, uint8_t new);
@@ -42,9 +44,9 @@ static uint32_t rollhash_step(uint32_t arg, uint32_t hash, uint8_t old, uint8_t 
 char *
 Railgun7w(char *pbTarget, int cbTarget, char *pbPattern, int cbPattern)
 {
-    assert(cbPattern > 2);
     return (char*)(
            cbPattern > cbTarget ? NULL
+         : cbPattern < 3        ? NULL
          : cbPattern == 3       ? check3(  (byte*)pbTarget, (byte*)pbPattern, (uint)cbTarget)
          : cbTarget < 961       ? check4(  (byte*)pbTarget, (byte*)pbPattern, (uint)cbTarget, (uint)cbPattern)
          : cbPattern <= 22      ? bloom2(  (byte*)pbTarget, (byte*)pbPattern, (uint)cbTarget, (uint)cbPattern)
@@ -175,19 +177,20 @@ bloom12(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPattern)
 {
     uint ulHashPattern = *(uint*)pbPattern;  // First four bytes
     byte filter[1 << (HASHBITS - 3)] = {};
-    uint i, skip;
+    uint i, h, skip;
+    uint rharg = rollhash_arg(12);
+    uint rhash = rollhash_init(pbPattern, 12);
 
     for (i = 0; i <= cbPattern - 12; i++) {
-        uint h = hash12(pbPattern + i);
+        h = foldu(rhash);
         filter[h >> 3] |= 1 << (h & 7);
+        rhash = rollhash_step(rharg, rhash, pbPattern[i], pbPattern[i+12]);
     }
 
-    uint rharg = rollhash_arg(12);
-    uint rhash = rollhash_init(pbTarget + cbPattern - 12, 12);
-
+    rhash = rollhash_init(pbTarget + cbPattern - 12, 12);
     for (i = 0; i <= cbTarget - cbPattern; i += skip) {
         //uint h = hash12(pbTarget + i + cbPattern - 12);
-        uint h = foldu(rhash);
+        h = foldu(rhash);
         if (!(filter[h >> 3] & (1 << (h & 7))))
             skip = cbPattern - 11,
             rhash = rollhash_init(pbTarget + cbPattern + i + 1 - 12, 12);
@@ -200,30 +203,19 @@ bloom12(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPattern)
     return NULL;
 }
 
-// Fold 4 bytes into 16 bits.
-static inline uint
-foldp(byte *tp)
-{
-    uint chunk = *(uint*)tp;
-    return (chunk >> 16) ^ (chunk & 0xFFFF);
-}
-
-
-// Hash 12 bytes into 16 bits.
-static uint
-hash12(byte *tp)
-{
-    uint hash32 = (2166136261 ^ *(uint*) (tp + 0)) * 709607;
-    uint hash32B = (2166136261 ^ *(uint*) (tp + 4)) * 709607;
-    uint hash32C = (2166136261 ^ *(uint*) (tp + 8)) * 709607;
-
-#   define _rotl_KAZE(x, n) (((x) << (n)) | ((x) >> (32-(n))))
-    hash32 = (hash32 ^ _rotl_KAZE(hash32C, 5)) * 709607;
-    hash32 = (hash32 ^ _rotl_KAZE(hash32B, 5)) * 709607;
-    hash32 = (hash32 ^ (hash32 >> 16)) & HASHMASK;
-
-    return hash32;
-}
+//// Hash 12 bytes into 16 bits.
+//static uint
+//hash12(byte *tp)
+//{
+//    uint hash32 = (2166136261 ^ *(uint*) (tp + 0)) * 709607;
+//    uint hash32B = (2166136261 ^ *(uint*) (tp + 4)) * 709607;
+//    uint hash32C = (2166136261 ^ *(uint*) (tp + 8)) * 709607;
+//#   define _rotl_KAZE(x, n) (((x) << (n)) | ((x) >> (32-(n))))
+//    hash32 = (hash32 ^ _rotl_KAZE(hash32C, 5)) * 709607;
+//    hash32 = (hash32 ^ _rotl_KAZE(hash32B, 5)) * 709607;
+//    hash32 = (hash32 ^ (hash32 >> 16)) & HASHMASK;
+//    return hash32;
+//}
 
 static inline uint
 intdiff(byte *pbOne, byte *pbTwo, uint cbLen)
@@ -234,13 +226,11 @@ intdiff(byte *pbOne, byte *pbTwo, uint cbLen)
     return 0;
 }
 
-#ifndef ROLLHASH_MOD
+#ifndef STRESS_C
 #define ROLLHASH_MOD 8355967
 
 // rollhash_arg returns (256 ^ (leng - 1) mod ROLLHASH_MOD).
-//  Most efficient to compute this once then pass it to rollhash_step.
-//  Calling   rollhash_step(1, hash, data[i]*arg, data[i+leng])
-//  amounts to the same thing. 
+//  Compute this once, then pass it repeatedly to rollhash_step.
 
 static uint32_t
 rollhash_arg(uint32_t leng)

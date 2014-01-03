@@ -4,7 +4,7 @@
 //
 // Revision: 1, 2012-Feb-01, the main disadvantage: the preprocessing overhead PLUS a hasher.
 // Caution: For better speed the case 'if (cbPattern==1)' was removed, so Pattern must be longer than 1 char.
-#ifndef STR_X
+#ifndef STRESS_C
 #include <stdint.h>
 char *Railgun7h(char *tgt, int tgtlen, char *pat, int patlen);
 #endif
