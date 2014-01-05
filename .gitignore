@@ -1,0 +1,17 @@
+# compiled programs:
+# fnv_t map_t ssearch_t str_t are SCRIPTS oops
+*_[tx]
+concurs
+gai
+realpath
+stress
+# intermediate files:
+*.[adios]
+# test byproducts:
+*.fail
+*.pass
+*.swp
+*.tmp
+88.tab
+osho.txt
+words

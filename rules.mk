@@ -31,7 +31,6 @@ export LD_LIBRARY_PATH PS4
 PREFIX          ?= /usr/local
 DESTDIR         ?= $(PREFIX)
 OSNAME          := $(shell uname -s)
-
 CFLAGS.         = -O9
 # HACK until I figure out how to choose the most recent compiler @simba
 CC              = /usr/bin/gcc44
@@ -58,6 +57,8 @@ CFLAGS          += -ggdb -MMD -fdiagnostics-show-option -fstack-protector --para
 CFLAGS          += -Wall -Werror -Wextra -Wcast-align -Wcast-qual -Wformat=2 -Wformat-security -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wno-unknown-pragmas -Wunused $(Wno-unused-result) -Wwrite-strings
 CFLAGS          += -Wno-attributes $(CFLAGS.$(BLD))
 
+CXXFLAGS += $(filter-out -Wmissing-prototypes -Wnested-externs -Wstrict-prototypes, $(CFLAGS))
+
 # -D_FORTIFY_SOURCE=2 on some plats rejects any libc call whose return value is ignored.
 #   For some calls (system, write) this makes sense. For others (vasprintf), WTF?
 
@@ -67,6 +68,7 @@ LDLIBS          += $(LDLIBS.$(OSNAME))
 
 #---------------- Explicitly CANCEL EVIL BUILTIN RULES:
 %               : %.c 
+%               : %.cpp
 %.c             : %.l
 %.c             : %.y
 %.r             : %.l
@@ -144,14 +146,17 @@ source          = $(filter-out %.d, $(shell $(MAKE) -nps all test cover profile 
 
 # gccdefs : all gcc internal #defines.
 gccdefs         :;@$(CC) $(CPPFLAGS) -E -dM - </dev/null | cut -c8- | sort
-tags            : all; ctags $(filter %.c,$(source)) $(filter %.h,$(source))
+tags            : all; ctags $(filter %.c %.cpp %.h, $(source))
 # sh : invoke a shell within the makefile's env:
 sh   		:; PS1='$(PS1) [make] ' $(SHELL)
 
 # %.I lists all (recursive) #included files; e.g.: "make /usr/include/errno.h.I"
-%.I             : %         ;@ls -1 2>&- `$(CC) $(CPPFLAGS) -M $*` ||:
+%.I             : %.c       ;@ls -1 2>&- `$(CC) $(CPPFLAGS) -M $<` ||:
+%.I             : %.cpp     ;@ls -1 2>&- `$(CXX) $(CPPFLAGS) -M $<` ||:
 %.i             : %.c       ; $(COMPILE.c) -E -o $@ $<
+%.i             : %.cpp     ; $(COMPILE.cpp) -E -o $@ $<
 %.s             : %.c       ; $(COMPILE.c) -S -o $@ $< && deas $@
+%.s             : %.cpp     ; $(COMPILE.cpp) -S -o $@ $< && deas $@
 
 # "make SomeVar." prints $(SomeVar)
 %.              :;@echo '$($*)'

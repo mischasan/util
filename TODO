@@ -2,6 +2,8 @@
 
 Fri Jan  3 12:01:40 PST 2014
 - Make ssestr smarter for long patterns, horspool style.
+- make ssestr not overrun mem on intcmp(tgt...)
+    Note Yuriy Kaminskiy's email 24-12-2013.
 - .gitignore is stupid about *_t files that are scripts.
 
 Wed Nov 27 2013

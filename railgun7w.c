@@ -68,11 +68,7 @@ check3(byte *pbTarget, byte *pbPattern, uint cbTarget)
                 && pbPattern[1] == pbTarget[1])
             return pbTarget;
 
-        if (pbTarget[1] != A) {
-            pbTarget++;
-            if (pbTarget[1] != A)
-                pbTarget++;
-        }
+        pbTarget += pbTarget[1] == A ? 0 : pbTarget[2] == A ? 1 : 2;
     } while (++pbTarget <= pbTargetMax);
 
     return NULL;
@@ -104,14 +100,10 @@ check4(byte *pbTarget, byte *pbPattern, uint cbTarget, uint cbPattern)
                 return pbTarget - cbPattern;
         } else { // The goal here: to avoid memory accesses by stressing the registers.
             ulHashTarget ^= quad; //XXX Slightly cheaper way to test each byte vs pbPattern[0]
-            if (ulHashTarget & 0x0000FF00) {
-                skip++;
-                if (ulHashTarget & 0x00FF0000) {
-                    skip++;
-                    if (ulHashTarget & 0xFF000000)
-                        skip++;
-                }
-            }
+            skip += !(ulHashTarget & 0x0000FF00) ? 0
+                  : !(ulHashTarget & 0x00FF0000) ? 1
+                  : !(ulHashTarget & 0xFF000000) ? 2
+                                                 : 3;
         }
     } while ((pbTarget += skip) <= pbTargetMax);
 

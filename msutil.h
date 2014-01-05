@@ -164,6 +164,8 @@
 //                              On some platforms, scanstr is 6* faster than strstr,
 //                              scanchr is 15* faster than strchr.
 //                              scanstrx is scanstr using scanstr2 (per blog post)
+//  ssesort16d              - sort 16 doubles using 8 SSE2 registers.
+//  sserank16d              - sort and provide a ranking vector (int[16], 0..15 permuted).
 //  signame[nsignames]      - (string) names for signals (e.g. "SIGHUP").
 //  slurp(fname)            - create membuf from a file. fname "-" or NULL reads stdin.
 //  strim(s)                - "Trim" leading/trailing whitespace. (s) is modified.
@@ -639,6 +641,9 @@ int         scancmp(char const *s, char const *t);
 char const* scanstr(char const *tgt, char const *pat);
 char const* scanstr2(char const *tgt, char const pat[2]);
 char const* scanstrx(char const *tgt, char const *pat);
+
+void ssesort16d(double keys[16]);
+void sserank16d(double keys[16], int rank[16]);
 //--------------|-----------------------------------------------
 char*   acstr(char const*buf, int len);
 MEMREF 	addr_part(MEMREF);

@@ -4,6 +4,7 @@
 #esac
 
 #====================================================================
+
 #alias a2ps='/usr/bin/a2ps -Mletter'
 alias dial='set -- [l] [abc] [def] [ghi] [jkl] [mno] [prs] [tuv] [wyx] 0'
 alias lc='ls -CALF'
@@ -32,6 +33,7 @@ ep	    Append/prepend/delete directories in \$PATH-style list. SEE DOC BELOW
 fld n       Print col n of inputs. Like cut -f(n), but using whitespace, not just \t.
 ff          Fast find-file, setting a one-letter variable. "ff -a" looks in build-* etc.
 gccdefs     Lists all internal gcc #defines (e.g. __Linux__)
+gam         git add (modified files)
 gdif        vimdiff for git (like vd for p4)
 h           History with a bit of grep.
 how	    Like "which", but finds aliases and functions, follows symlinks and shows file type.
@@ -178,35 +180,37 @@ __USAGE__
 fld () { local fld=$1; shift; awk "{print \$$fld}" $*; }
 
 #XXX: add "-d" for directories-only
-ff () {
-    local a=n
-    if [ .$1 = .-a ]; then shift; a=y; fi
+##ff () {
+##    local a=n
+##    if [ .$1 = .-a ]; then shift; a=y; fi
+##
+##    local patt="$1" f fff
+##    if [ ! "$patt" ]; then 
+##        perl -le '($x) = $ENV{PWD} =~ m{(.*/)}; for $f (sort grep {m{^[a-z]{1,2}$}i and -f $ENV{$_}} keys %ENV) { $_=$ENV{$f}; s{^$ENV{PWD}/}{}; s{^$x}{../}; s{^$ENV{HOME}}{~}; print "$f $_" }'
+##        return
+##    fi
+##
+##    # Locate and choose the file:
+##    set -- $(case $a in y) find * -type f ;; n) find * -name build-\* -prune -o -name blib -prune -o -name buildenv -prune -o -type f; esac 2>&- | egrep "$patt")
+##    test $# = 0 || set -- $(file $* | sed -n /text/s/:.*//p)
+##    case $# in 
+##    0)  echo >&2 "ff: cannot find '*$patt*' in $PWD"; return ;;
+##    1)  fff=$PWD/$1 ;;
+##    *)  local COLUMNS=40; select fff in "$@"; do fff=$PWD/$fff; break; done ;;
+##    esac
+##
+##    # If it has already been assigned to a variable, just report that:
+##    if env | egrep -i "^[a-z]{1,2}=$fff$"; then return; fi
+##
+##    # Assign it to a one- or two-letter variable that's in the filename somewhere:
+##    f=${fff##*/}
+##    set -- `perl -le '$f="'${f%%.*}'"; print(($f) = grep {!$ENV{$_} and !/[^a-z]/i} split(//,$f), $f=~/../g)'` ff
+##    eval $1=$fff
+##
+##    echo -n >&2 $1=; echo $fff
+##}
 
-    local patt="$1" f fff
-    if [ ! "$patt" ]; then 
-        perl -le '($x) = $ENV{PWD} =~ m{(.*/)}; for $f (sort grep {m{^[a-z]{1,2}$}i and -f $ENV{$_}} keys %ENV) { $_=$ENV{$f}; s{^$ENV{PWD}/}{}; s{^$x}{../}; s{^$ENV{HOME}}{~}; print "$f $_" }'
-        return
-    fi
-
-    # Locate and choose the file:
-    set -- $(case $a in y) find * -type f ;; n) find * -name build-\* -prune -o -name blib -prune -o -name buildenv -prune -o -type f; esac 2>&- | egrep "$patt")
-    test $# = 0 || set -- $(file $* | sed -n /text/s/:.*//p)
-    case $# in 
-    0)  echo >&2 "ff: cannot find '*$patt*' in $PWD"; return ;;
-    1)  fff=$PWD/$1 ;;
-    *)  local COLUMNS=40; select fff in "$@"; do fff=$PWD/$fff; break; done ;;
-    esac
-
-    # If it has already been assigned to a variable, just report that:
-    if env | egrep -i "^[a-z]{1,2}=$fff$"; then return; fi
-
-    # Assign it to a one- or two-letter variable that's in the filename somewhere:
-    f=${fff##*/}
-    set -- `perl -le '$f="'${f%%.*}'"; print(($f) = grep {!$ENV{$_} and !/[^a-z]/i} split(//,$f), $f=~/../g)'` ff
-    eval $1=$fff
-
-    echo -n >&2 $1=; echo $fff
-}
+gam()  { git add `git status | awk '/modified:/{print $3}'`; }
 
 gdif() { git difftool -t vimdiff $*; }
 
