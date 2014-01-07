@@ -21,7 +21,8 @@ for my $fname (@ARGV) {
             $labdef{$1} = ++$labnum;
         } elsif (m{\tj[bplasmogen].*(\.L[0-9]*)$}) { # jump => interesting label
             $labuse{$1} = ($labuse{$1} || '') . ($labdef{$1} ? 'B' : 'F');
-        } elsif (m{\.file (\d+) "([^"]*)"}) {   # source file declaration
+        } elsif (!m{ "/usr/|<built-in>} && m{\.file (\d+) "([^"]*)"}) {   # source file declaration
+            print STDERR $_;
             # gcc 4.3.4 may emit "file N <built-in>"
             $file[$1] = -f $2 ? slurpv $2 : [];
             s/^\s*}\s*$|.*(?:__builtin|__extension).*// for @{$file[$1]};
@@ -34,9 +35,19 @@ for my $fname (@ARGV) {
     # Reprocess output, inserting source lines and replacing labels:
   
     open my $out, ">$fname.tmp" or die "$fname.tmp: cannot create";
+    my $skip;
     for (@$src) {
         next if m{^#APP|^#NO|^# .*""};
+
+        # Eliminate C++ template output: /^_ZN\S+:$/,/^\w/-1
+        $skip = 0 if m{^_ZN}; $skip = 1 if m{^_ZNSt\S+:$};
+        next if $skip;
+
+        # Simplify mangled names:
+        #XXX properly decode <count><chars>... DNS-like encoding
+        s{\b_Z[KNSt]+\d+}{};
         s{(-?\d{5,20}(?!\(%[a-z]*bp))}{sprintf "0x%X",$1}eg;
+
         if (m{\.loc\s+(\d+)\s+(\d+)}) { # source file reference
             my $n = $2;
             s{^\s*}{#[$n]\t} if $_ = $file[$1][$n - 1] and m{\w};
@@ -46,7 +57,7 @@ for my $fname (@ARGV) {
         } elsif (my ($L) = m{\tj[bplasmogen].*(\.L[0-9]*)$}) {  # jump <label>
             s{$L}{$labdef{$L}};
         }
-        print $out $_ if (!m{^\t?\.} && !m<^[\t\n {};]*$>sg);
+        print $out $_ if ($_ && !m{^\t?\.} && !m<^[\t\n {};]*$>sg);
     }
 
     close $out;

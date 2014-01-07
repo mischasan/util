@@ -21,6 +21,7 @@ typedef uint8_t  byte;
 #define NeedleThreshold2vs4TchittoGritto 22 // Should be bigger than 8. BMH2 works up to this value (inclusive), if bigger then BMH4 takes over.
 #define NeedleThresholdBIGSekireiTchittoGritto (12+700)   // Should be bigger than 'HasherezadeOrder'. BMH2 works up to this value (inclusive).
 #define HashTableSizeSekireiTchittoGritto 17-1  // In fact the real size is -3, because it is BITwise, when 17-3=14 it means 16KB, (17-1)-3=13 it means 8KB.
+
 #define HASHBITS    16 
 #define HASHMASK    ((1 << (HASHBITS)) - 1)
 
