@@ -1,25 +1,8 @@
-# Copyright (C) 2009-2013 Mischa Sandberg <mischasan@gmail.com>
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License Version 2 as
-# published by the Free Software Foundation.  You may not use, modify or
-# distribute this program under any other version of the GNU General
-# Public License.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
-#------------------------------------------------------------------------
-# INPUTS
-#   $(all)	: list of module names that want standard "clean".
-#   $BLD	: empty, or one of:   cover  debug  profile
-#   $(<module>.clean): list of non-target dirs/files to clean up.
-#   $(<module>.test): list of .pass targets for <module>
+# Environment:
+#   $BLD        : empty, or one of:   cover  debug  profile
+# Makefile vars:
+#   all += <module> where <module>.
+#   clean += <pathnames>
 
 ifndef RULES_MK
 RULES_MK:=1 # Allow repeated "-include".
@@ -33,7 +16,7 @@ DESTDIR         ?= $(PREFIX)
 OSNAME          := $(shell uname -s)
 CFLAGS.         = -O9
 # HACK until I figure out how to choose the most recent compiler @simba
-CC              = /usr/bin/gcc44
+CC              = /usr/bin/gcc44 
 
 CFLAGS.cover    = --coverage -DNDEBUG
 LDFLAGS.cover   = --coverage
@@ -62,8 +45,8 @@ CXXFLAGS += $(filter-out -Wmissing-prototypes -Wnested-externs -Wstrict-prototyp
 # -D_FORTIFY_SOURCE=2 on some plats rejects any libc call whose return value is ignored.
 #   For some calls (system, write) this makes sense. For others (vasprintf), WTF?
 
-CPPFLAGS        += -I$(PREFIX)/include -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD))
-LDFLAGS         += -L$(PREFIX)/lib $(LDFLAGS.$(BLD))
+CPPFLAGS        += -I$(PREFIX)/include -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD)) $(CPPFLAGS.$(OSNAME))
+LDFLAGS         += -L$(PREFIX)/lib $(LDFLAGS.$(BLD)) $(LDFLAGS.$(OSNAME))
 LDLIBS          += $(LDLIBS.$(OSNAME))
 
 #---------------- Explicitly CANCEL EVIL BUILTIN RULES:
@@ -104,6 +87,7 @@ Install         = if [ "$(strip $2)" ]; then mkdir -p $1; pax -rw -pe -s:.*/:: $
 # If you believe in magic vars, e.g. "myutil.bin = prog1 prog2 prog3"
 # causing "myutil.install" to copy those files to $(DESTDIR)/bin
 # then here's your automagic "install":
+#XXX use global vars (bin lib ...) to which all subprojects += ...
 %.install       : %.all $(%.bin) $(%.etc) $(%.include) $(%.ini) $(%.lib) $(%.sbin) \
                 ;@$(call Install,$(DESTDIR)/bin,    $($*.bin))  \
                 ; $(call Install,$(DESTDIR)/etc,    $($*.etc))  \

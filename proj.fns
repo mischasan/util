@@ -91,6 +91,7 @@ dbg() {
         pgm=$1; shift
         ;;
     *)  cmdf=/tmp/gdb.$$
+        #XXX use gdb --args $PGM ... and figure out stdin/stdout some other time ...
         let lsize=LINES/2
         local argv=$(perl -le "print join' ',map{qq{'\$_'}}@ARGV" -- "$@")
         cat >$cmdf <<-END
@@ -155,6 +156,7 @@ __USAGE__
 
     case "$1" in 
         [-+^]*)     var=PATH ;;
+        [A-Z_a-z]*PATH) var=$1 ;;
         [A-Z_a-z]*) var=$(env | sed -n "/^$1[A-Z_0-9]*PATH=/{s/=.*//p;q;}"); shift ;;
         *)          echo >&2 'Type "ep -?" for usage'; return
     esac
