@@ -14,8 +14,10 @@ export LD_LIBRARY_PATH PS4
 PREFIX          ?= /usr/local
 DESTDIR         ?= $(PREFIX)
 OSNAME          := $(shell uname -s)
-CFLAGS.         = -O9
-# HACK until I figure out how to choose the most recent compiler @simba
+CFLAGS.         = -O2
+
+CCVERSION       := $(shell $(CC) -dumpversion)
+# HACK until I figure out how to choose the most recent CentOS(!) compiler @simba
 CC              = /usr/bin/gcc44 
 
 CFLAGS.cover    = --coverage -DNDEBUG
@@ -29,6 +31,7 @@ LDFLAGS.profile = -pg
 # PROFILE tests get stats on syscalls in their .pass files.
 exec.profile	= strace -cf
 
+CFLAGS.Darwin   =
 LDLIBS.FreeBSD  = -lm
 LDLIBS.Linux    = -ldl -lm -lresolv
 
