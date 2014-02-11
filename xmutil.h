@@ -56,6 +56,8 @@ int xm_fls(XMM x);
 XMM xm_shl(XMM x, unsigned nbits);
 XMM xm_shr(XMM x, unsigned nbits);
 
+int xm_popcount(XMM x);
+
 char*xm_dbl(__m128d x, char buf[48]);
 char*xm_llx(XMM x, char buf[48]);
 char*xm_str(XMM x, char buf[48]);

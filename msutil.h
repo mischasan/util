@@ -218,7 +218,11 @@ extern "C" {
 #endif
 
 #if __LONG_MAX__ == 9223372036854775807L
-#   define F64      "l"
+#   ifdef __APPLE__
+#       define F64  "ll"
+#   else
+#       define F64  "l"
+#   endif
 #elif __LONG_MAX__ == 2147483647L
 #   define F64      "ll"
 #else
@@ -238,8 +242,16 @@ extern "C" {
 #   include <byteswap.h>
 #   include <endian.h>      // __BYTE_ORDER
 #   define regargs __attribute__((fastcall))
+//#elif defined(__APPLE_)
 #else
-#   error "need byteswap intrinsics"
+#   include <machine/endian.h>      // __BYTE_ORDER
+static inline unsigned short bswap_16(unsigned short x)         { return (x>>8) | (x<<8); }
+static inline unsigned int bswap_32(unsigned int x)             { return (bswap_16(x&0xffff)<<16) | (bswap_16(x>>16)); }
+static inline unsigned long long bswap_64(unsigned long long x) { return (((unsigned long long)bswap_32(x&0xffffffffULL))<<32) | (bswap_32(x>>32)); }
+#   define regargs
+
+//#else
+//#   error Find out how to define bswap and endian.h for this platform!
 #endif
 
 // This is the gcc way 
@@ -254,6 +266,8 @@ extern "C" {
 #define __wur
 
 #include <stdio.h>
+#define	_STDIO_H_   // MacOSX
+
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
@@ -658,8 +672,8 @@ void    die(char const *fmt, ...) NORETURN;
 int     findbit_0(uint8_t const*vec, int nbytes);
 int     findbit_1(uint8_t const*vec, int nbytes);
 #ifndef __BSD_VISIBLE
-static inline int fls(int x) 
-{ if (!x) return 0; asm("bsrl %0,%0":"=a"(x):"a"(x)); return x+1; }
+//XXX
+//static inline int fls(int x) { if (!x) return 0; asm("bsrl %0,%0":"=a"(x):"a"(x)); return x+1; }
 #endif
 FILE*   fopenf(char const *mode, char const *fmt, ...);
 #if defined(__linux__)

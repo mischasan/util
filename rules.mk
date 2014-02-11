@@ -13,13 +13,15 @@ export LD_LIBRARY_PATH PS4
 # Import from PREFIX, export to DESTDIR.
 PREFIX          ?= /usr/local
 DESTDIR         ?= $(PREFIX)
-OSNAME          := $(shell uname -s)
+OSName          := $(shell uname -s)
+OSNAME          := $(shell uname -s | tr '[a-z]' '[A-Z]')
+
+# HACK CentOS 5 comes with gcc 4.1, gcc 4.4 requires a special command
+#CC              = /usr/bin/gcc44
+
+#--- *.$(BLD):
+# -O level > 2 makes gcc 4.2 go weird on MacOSX
 CFLAGS.         = -O2
-
-CCVERSION       := $(shell $(CC) -dumpversion)
-# HACK until I figure out how to choose the most recent CentOS(!) compiler @simba
-CC              = /usr/bin/gcc44 
-
 CFLAGS.cover    = --coverage -DNDEBUG
 LDFLAGS.cover   = --coverage
 
@@ -31,7 +33,8 @@ LDFLAGS.profile = -pg
 # PROFILE tests get stats on syscalls in their .pass files.
 exec.profile	= strace -cf
 
-CFLAGS.Darwin   =
+#--- *.$(OSName):
+CFLAGS.Darwin   = 
 LDLIBS.FreeBSD  = -lm
 LDLIBS.Linux    = -ldl -lm -lresolv
 
@@ -39,18 +42,19 @@ LDLIBS.Linux    = -ldl -lm -lresolv
 Wno-unused-result := $(shell $(CC) -dumpversion | awk '$$0 >= 4.5 {print "-Wno-unused-result"}')
 
 # XXX -funsigned-char would save time.
-CFLAGS          += -ggdb -MMD -fdiagnostics-show-option -fstack-protector --param ssp-buffer-size=4 -fno-strict-aliasing
-CFLAGS          += -Wall -Werror -Wextra -Wcast-align -Wcast-qual -Wformat=2 -Wformat-security -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wno-unknown-pragmas -Wunused $(Wno-unused-result) -Wwrite-strings
-CFLAGS          += -Wno-attributes $(CFLAGS.$(BLD))
+CFLAGS          += -ggdb -MD -fdiagnostics-show-option -fstack-protector --param ssp-buffer-size=4 -fno-strict-aliasing
+#CFLAGS          += -Wall -Werror -Wextra -Wcast-align -Wcast-qual -Wformat=2 -Wformat-security -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wno-unknown-pragmas -Wunused -Wwrite-strings
+CFLAGS          += -Wno-attributes -Wno-cast-qual -Wno-unknown-pragmas $(Wno-unused-result)
+CFLAGS          += $(CFLAGS.$(BLD)) $(CFLAGS.$(OSName))
 
 CXXFLAGS += $(filter-out -Wmissing-prototypes -Wnested-externs -Wstrict-prototypes, $(CFLAGS))
 
 # -D_FORTIFY_SOURCE=2 on some plats rejects any libc call whose return value is ignored.
 #   For some calls (system, write) this makes sense. For others (vasprintf), WTF?
 
-CPPFLAGS        += -I$(PREFIX)/include -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD)) $(CPPFLAGS.$(OSNAME))
-LDFLAGS         += -L$(PREFIX)/lib $(LDFLAGS.$(BLD)) $(LDFLAGS.$(OSNAME))
-LDLIBS          += $(LDLIBS.$(OSNAME))
+CPPFLAGS        += -I$(PREFIX)/include -DPLATFORM_$(OSNAME) -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD)) $(CPPFLAGS.$(OSName))
+LDFLAGS         += -L$(PREFIX)/lib $(LDFLAGS.$(BLD)) $(LDFLAGS.$(OSName))
+LDLIBS          += $(LDLIBS.$(OSName))
 
 #---------------- Explicitly CANCEL EVIL BUILTIN RULES:
 %               : %.c 
@@ -86,6 +90,8 @@ Expand          = perl -pe 's/ (?<!\\) \$${ ([A-Z_][A-Z_0-9]*) } / $$ENV{$$1} ||
 
 # $(call Install,TGTDIR,SRCFILES):
 Install         = if [ "$(strip $2)" ]; then mkdir -p $1; pax -rw -pe -s:.*/:: $2 $1; fi
+
+ToUpper = $(shell echo $1 | tr '[a-z]' '[A-Z]')
 
 # If you believe in magic vars, e.g. "myutil.bin = prog1 prog2 prog3"
 # causing "myutil.install" to copy those files to $(DESTDIR)/bin

@@ -22,7 +22,6 @@ for my $fname (@ARGV) {
         } elsif (m{\tj[bplasmogen].*(\.L[0-9]*)$}) { # jump => interesting label
             $labuse{$1} = ($labuse{$1} || '') . ($labdef{$1} ? 'B' : 'F');
         } elsif (!m{ "/usr/|<built-in>} && m{\.file (\d+) "([^"]*)"}) {   # source file declaration
-            print STDERR $_;
             # gcc 4.3.4 may emit "file N <built-in>"
             $file[$1] = -f $2 ? slurpv $2 : [];
             s/^\s*}\s*$|.*(?:__builtin|__extension).*// for @{$file[$1]};

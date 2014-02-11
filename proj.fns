@@ -212,7 +212,7 @@ fld () { local fld=$1; shift; awk "{print \$$fld}" $*; }
 ##    echo -n >&2 $1=; echo $fff
 ##}
 
-gam()  { git add `git status | awk '/modified:/{print $3}'`; }
+gam()  { echo git add `git status | awk '/modified:/ || /deleted:/{print $3}'` | $SHELL -x; }
 
 gdif() { git difftool -t vimdiff $*; }
 

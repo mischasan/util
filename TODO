@@ -1,5 +1,8 @@
 -:[bs]ug  +:done  x:nope  ^:forwarded  #:note  ?:question
 
+Sun Feb  2 15:11:15 PST 2014
+x perhaps sock.c should support port lookup via getservbyname?
+- eliminate sprintf from sock_connect; remove #include <stdio.h
 Fri Jan  3 12:01:40 PST 2014
 - Make ssestr smarter for long patterns, horspool style.
 - make ssestr not overrun mem on intcmp(tgt...)
