@@ -673,7 +673,7 @@ int     findbit_0(uint8_t const*vec, int nbytes);
 int     findbit_1(uint8_t const*vec, int nbytes);
 #ifndef __BSD_VISIBLE
 //XXX
-//static inline int fls(int x) { if (!x) return 0; asm("bsrl %0,%0":"=a"(x):"a"(x)); return x+1; }
+static inline int fls(int x) { if (!x) return 0; asm("bsrl %0,%0":"=a"(x):"a"(x)); return x+1; }
 #endif
 FILE*   fopenf(char const *mode, char const *fmt, ...);
 #if defined(__linux__)

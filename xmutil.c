@@ -35,10 +35,10 @@ int xm_popcount(XMM x)
                 k2 = { 0x3333333333333333ULL, 0x3333333333333333ULL },
                 k4 = { 0x0F0F0F0F0F0F0F0FULL, 0x0F0F0F0F0F0F0F0FULL },
                 kf = { 0x0101010101010101ULL, 0x0101010101010101ULL };
-    x = x - ((x >> 1) & k1)
-    x = (x & k2) + ((x >> 2) & k2)
-    x = (x       + ((x >> 4) & k4)
-    x = (x * kf) >> 56
+    x = x - ((x >> 1) & k1);
+    x = (x & k2) + ((x >> 2) & k2);
+    x = (x       + ((x >> 4) & k4));
+    x = (x * kf) >> 56;
     // Now add bytes 0 and 8 from
     //XXX http://chessprogramming.wikispaces.com/Population+Count ...
 #endif
