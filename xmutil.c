@@ -23,27 +23,15 @@
 
 #ifdef __POPCNT__
 #   include <popcntintrin.h>
-#endif
-
 int xm_popcount(XMM x)
 {
-#ifdef __POPCNT__
     return _mm_popcnt_u64(((uint64_t const*)&x)[0])
          + _mm_popcnt_u64(((uint64_t const*)&x)[0]);
+}
 #else
-    static XMM  k1 = { 0x5555555555555555ULL, 0x5555555555555555ULL },
-                k2 = { 0x3333333333333333ULL, 0x3333333333333333ULL },
-                k4 = { 0x0F0F0F0F0F0F0F0FULL, 0x0F0F0F0F0F0F0F0FULL },
-                kf = { 0x0101010101010101ULL, 0x0101010101010101ULL };
-    x = x - ((x >> 1) & k1);
-    x = (x & k2) + ((x >> 2) & k2);
-    x = (x       + ((x >> 4) & k4));
-    x = (x * kf) >> 56;
-    // Now add bytes 0 and 8 from
+    // xm_popcount not implemented when _mm_popcnt_64 is not available.
     //XXX http://chessprogramming.wikispaces.com/Population+Count ...
 #endif
-    return 0;
-}
 
 #undef  DO
 #define DO_8x8(op,a) DO_8(op,a,0) DO_8(op,a,1) DO_8(op,a,2) DO_8(op,a,3) DO_8(op,a,4) DO_8(op,a,5) DO_8(op,a,6) DO_8(op,a,7)

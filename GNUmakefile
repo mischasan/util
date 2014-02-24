@@ -63,7 +63,6 @@ $(util)/psearch_t.pass  : $(util)/psearch_x $(util)/psearch_mmap_x
 $(util)/rsort_t.pass    : $(util)/rsort_x
 $(util)/ssearch_t.pass  : $(util)/ssearch_x
 $(util)/str_t.pass      : $(util)/str_x $(util)/88.tab
-$(util)/ordhuff.o $(util)/ordhuff.s : CFLAGS.Linux += -fforward-propagate -funroll-all-loops -fvariable-expansion-in-unroller
 
 # source: source files not currently used by any targets.
 source += $(util.scripts) $(patsubst %,$(util)/%, .gdbinit aa.c bergstr.c bloom_t.c bndmem.c _concur.h concur.h concur_t.c intsum_t.c jlu32.c psearch.h psearch_strings.c railgun7*.c search_t.c *ssearch.h strstr42.asm strstr.S winstr.c xmm.txt)

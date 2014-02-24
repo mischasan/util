@@ -46,7 +46,7 @@ typedef struct tnode {
 } TNODE;
 
 static void add_backlinks(TNODE*, TNODE**, TNODE**);
-static int bitwid(unsigned u);
+static int inline bitwid(unsigned u);
 static int create_tree(TNODE*, SYMBOL const*symv, MEMREF const*strv, int nstrs);
 static void fill_hashv(PSEARCH*, TNODE const*, int nn);
 static void fill_symv(PSEARCH*, MEMREF const*, int ns);

@@ -20,19 +20,16 @@
 
 // Bounded non-deterministic DAWG search; a suffix shift-and algorithm.
 
-#include <stdint.h>
-#include <immintrin.h> // Permit AVX (__m256i)
 #include "msutil.h"
+#include "xmutil.h"
 
 #define INTBITS (sizeof(int)*8)
 static inline void setbit(void *v, int p)   // p in 0..255
 { ((int*)v)[p / INTBITS] |= 1 << (p & (INTBITS - 1)); }
 
-
-// SSE2 has no 128-bit bit shift. "Manually" carry the top bit
-//  of the low (64bit) half to the bottom of the high half.
-static inline __m128i xm_shl_001(__m128i x) 
-{ return _mm_or_si128(_mm_slli_epi64(x, 1), _mm_srli_epi64(_mm_slli_si128(x, 8), 63)); }
+// SSE2 has no 128-bit bit shift. xmutil.h defines this:
+// static inline __m128i xm_shl_001(__m128i x) 
+// { return _mm_or_si128(_mm_slli_epi64(x, 1), _mm_srli_epi64(_mm_slli_si128(x, 8), 63)); }
 
 char *
 bndmem(char *target, int tgtlen, char *pattern, int patlen)

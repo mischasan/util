@@ -1,8 +1,19 @@
 -:[bs]ug  +:done  x:nope  ^:forwarded  #:note  ?:question
 
+Sun Feb 23 16:34:33 PST 2014
+- ssearch is poor at small alphabets (e.g. ACGT) which would have mapv[4][4]
+    and for 100's of pattern strings, mapv[] words would be almost all 1's.
+- add ssearch_stats() to report mapv[] popcount and possible median matchlist length
+- make ssearch_create adaptive: build up mapvs of increasing dimension, 
+    until it hits a memory bound for maps or a popcount% bound for the last map.
+    ssearch_scan uses maps in order after a skip, until where 
++ eliminated incomplete xm_popcount. Doing it "manually" is pointless.
++ Restrict gcc options that are less portable. ordhuff is just a curiosity anyway.
+
 Sun Feb  2 15:11:15 PST 2014
 x perhaps sock.c should support port lookup via getservbyname?
 - eliminate sprintf from sock_connect; remove #include <stdio.h
+
 Fri Jan  3 12:01:40 PST 2014
 - Make ssestr smarter for long patterns, horspool style.
 - make ssestr not overrun mem on intcmp(tgt...)
