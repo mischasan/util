@@ -35,7 +35,7 @@ typedef int (*SSEARCH_CB)(int strnum, const char *textp,
 			    void *context);
 SSEARCH*ssearch_create(const MEMREF *strv, int nstrs);
 void    ssearch_destroy(SSEARCH*);
-void    ssearch_scan(const SSEARCH*, const MEMREF text,
+int     ssearch_scan(const SSEARCH*, const MEMREF text,
 			SSEARCH_CB, void *context);
 void    ssearch_dump(SSEARCH*, FILE*);
 

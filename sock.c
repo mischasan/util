@@ -30,6 +30,11 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
+#include <stdio.h>          // sprintf
+#include <string.h>
+#include <unistd.h>
+
 #include <sys/stat.h>
 #include <netdb.h>          // gethostbyname
 #include <netinet/in.h>     // sockaddr_in
@@ -43,6 +48,28 @@
 
 #include "msutil.h"
 
+#ifdef _WIN32
+#   define FD_CLOEXEC   (-1)
+#   define F_GETFL      (-1)
+#   define F_SETFD      (-1)
+#   define F_SETFL      (-1)
+#   define IPPROTO_TCP  (-1)
+#   define O_NONBLOCK   (-1)
+#   define fcntl(a,b,c) (0)    /*!!*/
+// Windows has no unistd.h:
+extern int unlink(const char *);
+
+#else   // Linux,FreeBSD,Darwin ...
+
+typedef struct { struct cmsghdr c; int fd; } FDCMSG;
+
+static const struct cmsghdr fdc_hdr = {
+    sizeof(FDCMSG), SOL_SOCKET, SCM_RIGHTS
+};
+
+#   define closesocket(x) close(x)
+#endif
+
 // Internal types
 typedef struct addrinfo     ADRINFO;
 typedef struct sockaddr_in  IN4ADDR;
@@ -52,11 +79,10 @@ typedef struct sockaddr_un  UNADDR;
 typedef uint8_t             IP6ADDR[16];    //HAHA make this __m128?
 
 typedef union { IN4ADDR in4; IN6ADDR in6; } INxADDR;
-// LInux and FreeBSD put fields common to (IPv4,IPv6) at the same offsets:
+
+// Linux and FreeBSD put fields common to (IPv4,IPv6) at the same offsets:
 #define inx_family in4.sin_family
 #define inx_port   in4.sin_port
-
-typedef struct { struct cmsghdr c; int fd; } FDCMSG;
 
 // dyninit: ensure cloexec supported in runtime env.
 static void dyninit(void);
@@ -65,14 +91,10 @@ static int  ininit(INxADDR*, IPSTR const, int port);
 static int  sockit(int domain);
 static int  uninit(UNADDR *, char const *path);
 
-static const struct cmsghdr fdc_hdr = {
-    sizeof(FDCMSG), SOL_SOCKET, SCM_RIGHTS
-};
-
 static int      sock_cloexec = 1, cmsg_cloexec, has_accept4;
 
 static int eclose(int fd)
-{ int e = errno; close(fd); errno = e; return -1; }
+{ int e = errno; closesocket(fd); errno = e; return -1; }
 
 static inline int BIT(int u, int m, int op)
 { return op ? u | m : u & ~m; }
@@ -111,7 +133,7 @@ sock_accept(int skt)
 
     int fd;
     do fd =
-#           if !defined(__FreeBSD__) && 0
+#           ifdef __FreeBSD__ 
             has_accept4 ? accept4(skt, NULL, NULL, sock_cloexec) :
 #           endif
             accept(skt, NULL, NULL);
@@ -170,7 +192,7 @@ sock_connect(const char *host, int port, int nowait)
     dyninit();
 
     char sport[7];
-    sprintf(sport, "%hu", port);
+    sprintf(sport, "%hu", (uint16_t)port);
     ADRINFO *aip, hint = {
         AI_NUMERICSERV, AF_UNSPEC, SOCK_STREAM, IPPROTO_TCP,
         /*addrlen */0, /*addr */0, /*canonname */0, /*next */0
@@ -265,7 +287,7 @@ static struct { int lvl, opt; } opts[SOCK_OPTS] = {
     , { F_GETFL,     O_NONBLOCK   }
     , { SOL_SOCKET,  SO_RCVBUF    }
     , { SOL_SOCKET,  SO_SNDBUF    }
-    , { SOL_SOCKET,  SO_ERROR     }
+    , { SOL_SOCKET,  SO_ERROR     } // sock_getopt only
     , { SOL_SOCKET,  SO_LINGER    } // placeholder
 };
 
@@ -300,7 +322,7 @@ sock_setopt(int skt, SOCK_OPT opt, int val)
 
     if (opt >= SOCK_OPTS) return errno = EINVAL, -1;
 
-    struct linger lng = { val > 0, val };
+    struct linger lng = { val > 0, val }; //XXX why a warning in Win?
     return opt == LINGER ?
             setsockopt(skt, SOL_SOCKET, SO_LINGER, &lng, sizeof lng)
         : opts[opt].lvl == F_GETFL ?
@@ -416,12 +438,13 @@ dyninit(void)
         if (fd < 0) {
             sock_cloexec = cmsg_cloexec = 0;
         } else {
-#           ifndef __FreeBSD__
+            //XXX I cannot figure what GLIBC features mean that accept4 is available at link or runtime.
+#           ifdef __FREEBSD__
             // Test whether glibc.accept4 really works:
             IN4ADDR sin;
             socklen_t len = sizeof(sin);
             listen(fd, 1);
-            getsockname(fd, &sin, &len);
+            getsockname(fd, (SOADDR*)&sin, &len);
             int con = sock_connect("127.0.0.1", ntohs(sin.sin_port), 1);
             int ret = accept4(fd, NULL, NULL, SOCK_CLOEXEC);
             has_accept4 = ret >= 0 && fcntl(ret, F_GETFD, 0) & FD_CLOEXEC;
@@ -466,9 +489,9 @@ ininfo(INxADDR const*xp, IPSTR ip, int *pport)
     if (pport) *pport = ntohs(xp->inx_port);
     if (!ip) return;
     if (xp->inx_family == AF_INET)
-        inet_ntop(AF_INET,  &xp->in4.sin_addr,  ip, sizeof(IPSTR));
+        inet_ntop(AF_INET,  (void*)&xp->in4.sin_addr,  ip, sizeof(IPSTR));
     else
-        inet_ntop(AF_INET6, &xp->in6.sin6_addr, ip, sizeof(IPSTR));
+        inet_ntop(AF_INET6, (void*)&xp->in6.sin6_addr, ip, sizeof(IPSTR));
 }
 
 static int
@@ -481,7 +504,7 @@ ininit(INxADDR *xp, IPSTR const ip, int port)
 #   endif
     // We rely on INADDR_ANY == 0x00000000
     memset(xp, 0, sizeof(*xp));
-    xp->inx_port   = htons(port);
+    xp->inx_port   = (uint16_t)htons((uint16_t)port);
     xp->inx_family = AF_INET;
     return !ip || !*ip ||
               1 == inet_pton(AF_INET, ip, &xp->in4.sin_addr)

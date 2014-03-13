@@ -143,6 +143,7 @@
 //                              fls(1)=1, fls(10)=4, fls(-1)=32, fls(0)=0
 //  fopenf(mode,fmt...)     - Open a temp file using an fopen mode and a printf-fmt filename.
 //  getprogname()           - Returns pointer to the program name (basename).
+//  hexdump(fp,buf,len)     - Text + hex dump of a mem block, 32 bytes per line.
 //  lohuff                  - Generate a LSBit-first Huffman-code table,
 //                              from a table of NONZERO symbol frequencies.
 //                              Codes are stored as (CODE << 8)+LENG.
@@ -679,6 +680,7 @@ FILE*   fopenf(char const *mode, char const *fmt, ...);
 #if defined(__linux__)
 char const *getprogname(void);  // BSD-equivalent
 #endif
+void    hexdump(FILE *fp, void const*_buf, int len);
 
 // lohuff: calculate lowbit Huffman codes for a given frequency vector.
 // freq[]: Symbol frequencies. No output code created where frequency is 0.

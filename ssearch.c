@@ -112,7 +112,7 @@ ssearch_destroy(SSEARCH*ssp)
     free(ssp);
 }
 
-void
+int
 ssearch_scan(const SSEARCH*ssp, const MEMREF text,
                 SSEARCH_CB cb, void *context)
 {
@@ -178,10 +178,10 @@ ssearch_scan(const SSEARCH*ssp, const MEMREF text,
             MEMREF s = ss.strv[*set];
 
             if (tp - s.len >= text.ptr
-                && !memcmp(s.ptr, tp - s.len,
-                           s.len - ss.suflen) 
-                && !cb(*set, tp - s.len, context))
-                return;
+                && !memcmp(s.ptr, tp - s.len, s.len - ss.suflen) 
+                && cb(*set, tp - s.len, context))
+                return 1;
         }
     }
+    return 0;
 }

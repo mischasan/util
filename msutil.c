@@ -374,6 +374,22 @@ getprogname(void)
 }
 #endif
 
+void
+hexdump(FILE *fp, void const*_buf, int len)
+{
+    uint8_t const *buf = (uint8_t const*)_buf;
+    if (!fp) return;
+    int line, i, wid = 32;
+
+    for (line = 0; line < len; line += wid) {
+        putc('\t', fp);
+        for (i = 0; i < wid; ++i) fputc(line+i >= len ? ' ' : isprint(buf[line+i]) ? buf[line+i] : '.', fp);
+        putc('|', fp);
+        for (i = 0; i < wid && line+i < len; ++i) fprintf(fp, " %02X", buf[line+i]);
+        putc('\n', fp);
+    }
+}
+
 // memfind: the "mem" equivalent of strstr
 //XXX: work out which range of (tgtlen,patlen) for which
 //      this is the optimal algorithm

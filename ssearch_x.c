@@ -47,7 +47,7 @@ main(int argc, char **argv)
 
     hits = 0;
     double	t = tick();
-    ssearch_scan(ssp, bufref(text), (SSEARCH_CB)on_match, pattv);
+    (void)ssearch_scan(ssp, bufref(text), (SSEARCH_CB)on_match, pattv);
     t = tick() - t;
     if (!ok(hits == matches, "match count"))
 	fprintf(stderr, "# actual: %d expected: %d\n", hits, matches);
