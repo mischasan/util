@@ -1,5 +1,9 @@
 -:[bs]ug  +:done  x:nope  ^:forwarded  #:note  ?:question
 
+Fri Mar 14 11:12:48 PDT 2014
+- write bpsearch_t.c
+- add extern "C" {...} support
+
 Sun Feb 23 16:34:33 PST 2014
 - ssearch is poor at small alphabets (e.g. ACGT) which would have mapv[4][4]
     and for 100's of pattern strings, mapv[] words would be almost all 1's.

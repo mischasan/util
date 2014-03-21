@@ -352,7 +352,7 @@ fopenf(char const *mode, char const *fmt, ...)
     return  fp;
 }
 
-#if defined(__linux__)
+#if defined(linux)
 char const *
 getprogname(void)
 {
@@ -383,9 +383,12 @@ hexdump(FILE *fp, void const*_buf, int len)
 
     for (line = 0; line < len; line += wid) {
         putc('\t', fp);
-        for (i = 0; i < wid; ++i) fputc(line+i >= len ? ' ' : isprint(buf[line+i]) ? buf[line+i] : '.', fp);
+        for (i = 0; i < wid; ++i) {
+            if (i == wid/2) putc(' ', fp);
+            putc(line+i >= len ? ' ' : isprint(buf[line+i]) ? buf[line+i] : '.', fp);
+        }
         putc('|', fp);
-        for (i = 0; i < wid && line+i < len; ++i) fprintf(fp, " %02X", buf[line+i]);
+        for (i = 0; i < wid && line+i < len; ++i) fprintf(fp, " %s%02X", i == wid/2 ? " " : "", buf[line+i]);
         putc('\n', fp);
     }
 }

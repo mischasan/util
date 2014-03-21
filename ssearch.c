@@ -1,12 +1,8 @@
-// Copyright (C) 2009-2013 Sophos LLC. All rights reserved.
-//-------------------------------------------------------------------
-
 #include "msutil.h"
-#include <assert.h>
 #include "_ssearch.h"
 
-// VOIDP: cast away const-ness without gcc whinging
-#define    VOIDP(x)     ((void*)(uintptr_t)x)
+// VOIDP: force anything to a (void*) without GCC whining.
+#define VOIDP(x) ((void*)(intptr_t)x)
 int ssearch_skip[16];
 
 SSEARCH*

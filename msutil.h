@@ -184,11 +184,14 @@
 #ifndef MSUTIL_H
 #define MSUTIL_H
 #ifdef __cplusplus
-extern "C" {
-#if 0
-}
+#   define BEGIN_C extern "C" {
+#   define END_C   };
+#else
+#   define BEGIN_C
+#   define END_C
 #endif
-#endif
+
+BEGIN_C
 
 // Convenient format strings constants e.g. printf("%"FSIZE"X", sizeof thing);
 //  F64:int64_t  FPTR:intptr_t  FSIZE:size_t 
@@ -396,6 +399,7 @@ typedef char IPSTR[46]; // strlen(IPv4) < 16;  strlen(IPv6) < 46
 int sock_accept(int skt);
 int sock_addr(int skt, IPSTR ip, int *pport, char *name, int size);
 int sock_bind(IPSTR const ip, int port);
+void sock_close(int skt);
 int sock_connect(char const *host, int port, int nowait);
 int sock_create(char const *path);
 #ifdef linux
@@ -773,11 +777,6 @@ extern int  const nerrnames;
 extern char const *signame[];
 extern int  const nsignames;
 
-#ifdef __cplusplus
-#if 0
-{
-#endif
-}
-#endif
+END_C
 
 #endif//MSUTIL_H

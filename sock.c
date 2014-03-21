@@ -27,6 +27,7 @@
 //XXX: fcntl O_ASYNC for lovers of SIGIO :-|
 //XXX make the (sendfd) interface into the only interface?
 //XXX add writev-type interface.
+//XXX Need a way to determine HAS_ACCEPT4
 
 #include <errno.h>
 #include <fcntl.h>
@@ -46,7 +47,10 @@
 #   include <sys/socket.h>     // cmsghdr
 #endif
 
-#include "msutil.h"
+#include "sock.h"
+#if defined(linux) && defined(_GNU_SOURCE)
+#   undef HAS_ACCEPT4       // XXX
+#endif
 
 #ifdef _WIN32
 #   define FD_CLOEXEC   (-1)
@@ -59,15 +63,14 @@
 // Windows has no unistd.h:
 extern int unlink(const char *);
 
-#else   // Linux,FreeBSD,Darwin ...
+#else   // Linux, FreeBSD, Darwin ...
+#   define closesocket(x) close(x)
 
 typedef struct { struct cmsghdr c; int fd; } FDCMSG;
 
 static const struct cmsghdr fdc_hdr = {
     sizeof(FDCMSG), SOL_SOCKET, SCM_RIGHTS
 };
-
-#   define closesocket(x) close(x)
 #endif
 
 // Internal types
@@ -79,7 +82,6 @@ typedef struct sockaddr_un  UNADDR;
 typedef uint8_t             IP6ADDR[16];    //HAHA make this __m128?
 
 typedef union { IN4ADDR in4; IN6ADDR in6; } INxADDR;
-
 // Linux and FreeBSD put fields common to (IPv4,IPv6) at the same offsets:
 #define inx_family in4.sin_family
 #define inx_port   in4.sin_port
@@ -133,7 +135,7 @@ sock_accept(int skt)
 
     int fd;
     do fd =
-#           ifdef __FreeBSD__ 
+#           ifdef HAS_ACCEPT4
             has_accept4 ? accept4(skt, NULL, NULL, sock_cloexec) :
 #           endif
             accept(skt, NULL, NULL);
@@ -185,6 +187,10 @@ sock_open(char const *path)
 
     return ret < 0 && errno != EAGAIN ? eclose(fd) : fd;
 }
+
+void
+sock_close(int skt)
+{ closesocket(skt); }
 
 int
 sock_connect(const char *host, int port, int nowait)
@@ -322,7 +328,7 @@ sock_setopt(int skt, SOCK_OPT opt, int val)
 
     if (opt >= SOCK_OPTS) return errno = EINVAL, -1;
 
-    struct linger lng = { val > 0, val }; //XXX why a warning in Win?
+    struct linger lng = { val > 0, val }; //XXX why winwarn?
     return opt == LINGER ?
             setsockopt(skt, SOL_SOCKET, SO_LINGER, &lng, sizeof lng)
         : opts[opt].lvl == F_GETFL ?
@@ -436,10 +442,10 @@ dyninit(void)
         sock_cloexec = SOCK_CLOEXEC;    // Safely re-enter dyninit from sock_bind
         int fd = sock_bind("", 0);
         if (fd < 0) {
-            sock_cloexec = cmsg_cloexec = 0;
+            sock_cloexec = 0
+            cmsg_cloexec = 0;
         } else {
-            //XXX I cannot figure what GLIBC features mean that accept4 is available at link or runtime.
-#           ifdef __FREEBSD__
+#           ifdef HAS_ACCEPT4
             // Test whether glibc.accept4 really works:
             IN4ADDR sin;
             socklen_t len = sizeof(sin);
@@ -489,9 +495,9 @@ ininfo(INxADDR const*xp, IPSTR ip, int *pport)
     if (pport) *pport = ntohs(xp->inx_port);
     if (!ip) return;
     if (xp->inx_family == AF_INET)
-        inet_ntop(AF_INET,  (void*)&xp->in4.sin_addr,  ip, sizeof(IPSTR));
+        inet_ntop(AF_INET,  (void const*)&xp->in4.sin_addr,  ip, sizeof(IPSTR));
     else
-        inet_ntop(AF_INET6, (void*)&xp->in6.sin6_addr, ip, sizeof(IPSTR));
+        inet_ntop(AF_INET6, (void const*)&xp->in6.sin6_addr, ip, sizeof(IPSTR));
 }
 
 static int

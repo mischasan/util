@@ -9,9 +9,9 @@ export util ?= .
 util.c          = $(patsubst %,$(util)/%, acstr.c bitmat.c bloom.c bndmem.c bpsearch.c cessuhash.c concur.c enum.c fnvhash.c jlu32.c maccess.c map.c mm3hash.c msutil.c ordhuff.c phkeys.c psearch.c psearch_create.c psearch_dump.c psearch_file.c rollhash.c rsort.c scan.c sha1.c sha256.c sheap.c sock.c ssearch.c ssearch_dump.c thread.c tolog.c uri.c xmutil.c ymd.c)
 util.progs      = $(patsubst %,$(util)/%, bloom_x brk_x gai hash_x memx nolock sock_x sort_x stress thread_x tt)
 
-#util_tpgms      = bitmat_t bloom_t maccess_t msutil_t scan_t sheap_t sock_t subref_t tolog_t udp_t uri_t xmutil_t
+#util_tpgms      = bitmat_t bloom_t bndm_t bppack_t maccess_t msutil_t scan_t sheap_t sock_t subref_t tolog_t udp_t ucs_utf_t uri_t 
 util_tpgms      = bitmat_t bloom_t bndm_t bppack_t maccess_t msutil_t scan_t sheap_t sock_t subref_t tolog_t udp_t uri_t 
-util.tpgms      = $(patsubst %,$(util)/%,      $(util_tpgms) fnv_x map_x ordhuff_x psearch_x psearch_mmap_x rollhash_x rsort_x ssearch_x str_x)
+util.tpgms      = $(patsubst %,$(util)/%, $(util_tpgms) fnv_x map_x ordhuff_x psearch_x psearch_mmap_x rollhash_x rsort_x ssearch_x str_x)
 util.test       = $(patsubst %,$(util)/%.pass, $(util_tpgms) fnv_t map_t ordhuff_t psearch_t rsort_t ssearch_t str_t)
 util.pgms       = $(patsubst %,$(util)/%, concurs realpath)
 util.scripts    = $(patsubst %,$(util)/%, amok covsum deas envy hist ifdent mkpg pg pgconf pglist pgps proj.fns pspace rules statpg statps tab)
@@ -63,6 +63,8 @@ $(util)/psearch_t.pass  : $(util)/psearch_x $(util)/psearch_mmap_x
 $(util)/rsort_t.pass    : $(util)/rsort_x
 $(util)/ssearch_t.pass  : $(util)/ssearch_x
 $(util)/str_t.pass      : $(util)/str_x $(util)/88.tab
+#$(util)/ordhuff.o $(util)/ordhuff.s : CFLAGS.Linux += -fforward-propagate -funroll-all-loops -fvariable-expansion-in-unroller
+$(util)/ordhuff.o $(util)/ordhuff.s : CFLAGS.Linux += -funroll-all-loops -fvariable-expansion-in-unroller
 
 # source: source files not currently used by any targets.
 source += $(util.scripts) $(patsubst %,$(util)/%, .gdbinit aa.c bergstr.c bloom_t.c bndmem.c _concur.h concur.h concur_t.c intsum_t.c jlu32.c psearch.h psearch_strings.c railgun7*.c search_t.c *ssearch.h strstr42.asm strstr.S winstr.c xmm.txt)

@@ -42,7 +42,7 @@ LDLIBS.Linux    = -ldl -lm -lresolv
 Wno-unused-result := $(shell $(CC) -dumpversion | awk '$$0 >= 4.5 {print "-Wno-unused-result"}')
 
 # XXX -funsigned-char would save time.
-CFLAGS          += -ggdb -MD -fdiagnostics-show-option -fstack-protector --param ssp-buffer-size=4 -fno-strict-aliasing
+CFLAGS          += -ggdb -MMD -fdiagnostics-show-option -fstack-protector --param ssp-buffer-size=4 -fno-strict-aliasing
 #CFLAGS          += -Wall -Werror -Wextra -Wcast-align -Wcast-qual -Wformat=2 -Wformat-security -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wno-unknown-pragmas -Wunused -Wwrite-strings
 CFLAGS          += -Wno-attributes -Wno-cast-qual -Wno-unknown-pragmas $(Wno-unused-result)
 CFLAGS          += $(CFLAGS.$(BLD)) $(CFLAGS.$(OSName))
