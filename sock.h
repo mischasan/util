@@ -22,6 +22,7 @@ int sock_accept(int skt);
 int sock_addr(int skt, IPSTR ip, int *pport, char *name, int size);
 int sock_bind(IPSTR const ip, int port);
 void sock_close(int skt);
+int sock_ready(int skt, int mode, int waitsecs);
 int sock_connect(char const *host, int port, int nowait);
 int sock_create(char const *path);
 #ifdef linux
@@ -39,5 +40,6 @@ int sock_setopt(int skt, SOCK_OPT, int val);
 int udp_open(IPSTR const ip, int port);
 int udp_recv(int fd, char *buf, int size, IPSTR ip, int *port);
 int udp_send(int fd, char const *buf, int size, IPSTR const ip, int port);
+#define udp_close(x) sock_close(x)
 
 #endif//TDSSOCK_H

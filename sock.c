@@ -96,7 +96,7 @@ static int  uninit(UNADDR *, char const *path);
 static int      sock_cloexec = 1, cmsg_cloexec, has_accept4;
 
 static int eclose(int fd)
-{ int e = errno; closesocket(fd); errno = e; return -1; }
+{ int e = errno; sock_close(fd); errno = e; return -1; }
 
 static inline int BIT(int u, int m, int op)
 { return op ? u | m : u & ~m; }
@@ -190,7 +190,43 @@ sock_open(char const *path)
 
 void
 sock_close(int skt)
-{ closesocket(skt); }
+{
+#ifdef WIN32
+    closesocket(skt);
+#else // Darwin,Linux,FreeBSD
+    close(skt);
+#endif
+}
+
+// mode: 0=read, 1=write/connect
+int
+sock_ready(int skt, int mode, int waitsecs)
+{
+    int ret, err;
+#ifdef USE_POLL
+    struct pollfd sockpoll = { skt, mode ? POLLOUT : POLLIN, waitsecs };
+
+    do { ret = poll(&sockpoll, 1, secs);
+    } while (ret < 0 && errno == EINTR);
+
+    err = sockpoll.revents & POLLERR;
+#else//USE_POLL
+    fd_set rwfds, erfds;
+    FD_ZERO(&rwfds);
+    FD_ZERO(&erfds);
+    do {
+        struct timeval timeout = { waitsecs, 0 };
+        FD_SET(skt, &rwfds);
+        FD_SET(skt, &erfds);
+
+        ret = mode  ? select(skt + 1, NULL, &rwfds, &erfds, &timeout)
+                    : select(skt + 1, &rwfds, NULL, &erfds, &timeout);
+    } while (ret < 0 && errno == EINTR);
+
+    err = FD_ISSET(skt, &erfds);
+#endif//USE_POLL
+    return err && ret > 0 ? -2 : ret;
+}
 
 int
 sock_connect(const char *host, int port, int nowait)
