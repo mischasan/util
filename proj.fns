@@ -56,6 +56,7 @@ tl          Tail almost-a-screenful.
 up          Pushd up (N) levels of directory.
 vd          p4 diff using vimdiff
 vdgit       git diff using vimdiff
+vgr         valgrind with the right options
 wi	    Edit a script in \$PATH or an alias/function in a sourced file.
 zr          Zero out a file
 __CAT__
@@ -293,6 +294,8 @@ up() {
 
 vd() { P4DIFF=vimdiff p4 diff `realpath $*`; }
 vdgit() { git difftool --tool=vimdiff --no-prompt $*; }
+
+vgr() { for f; do valgrind $f 2>&1 | sed -n '/HEAP SUMMARY/,$p' >$f.vg; done; }
 
 wi() {
     EDITOR=${EDITOR:-vi}

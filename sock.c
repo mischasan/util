@@ -27,7 +27,6 @@
 //XXX: fcntl O_ASYNC for lovers of SIGIO :-|
 //XXX make the (sendfd) interface into the only interface?
 //XXX add writev-type interface.
-//XXX Need a way to determine HAS_ACCEPT4
 
 #include <errno.h>
 #include <fcntl.h>
@@ -48,9 +47,6 @@
 #endif
 
 #include "sock.h"
-#if defined(linux) && defined(_GNU_SOURCE)
-#   undef HAS_ACCEPT4       // XXX
-#endif
 
 #ifdef _WIN32
 #   define FD_CLOEXEC   (-1)
@@ -60,11 +56,12 @@
 #   define IPPROTO_TCP  (-1)
 #   define O_NONBLOCK   (-1)
 #   define fcntl(a,b,c) (0)    /*!!*/
+#
+#   define poll WSAPoll
 // Windows has no unistd.h:
 extern int unlink(const char *);
 
 #else   // Linux, FreeBSD, Darwin ...
-#   define closesocket(x) close(x)
 
 typedef struct { struct cmsghdr c; int fd; } FDCMSG;
 
@@ -93,7 +90,7 @@ static int  ininit(INxADDR*, IPSTR const, int port);
 static int  sockit(int domain);
 static int  uninit(UNADDR *, char const *path);
 
-static int      sock_cloexec = 1, cmsg_cloexec, has_accept4;
+static int sock_cloexec = 1, cmsg_cloexec, has_accept4;
 
 static int eclose(int fd)
 { int e = errno; sock_close(fd); errno = e; return -1; }
@@ -135,7 +132,7 @@ sock_accept(int skt)
 
     int fd;
     do fd =
-#           ifdef HAS_ACCEPT4
+#           if 0 && defined(linux) && defined(_GNU_SOURCE)
             has_accept4 ? accept4(skt, NULL, NULL, sock_cloexec) :
 #           endif
             accept(skt, NULL, NULL);
@@ -193,39 +190,9 @@ sock_close(int skt)
 {
 #ifdef WIN32
     closesocket(skt);
-#else // Darwin,Linux,FreeBSD
+#else
     close(skt);
 #endif
-}
-
-// mode: 0=read, 1=write/connect
-int
-sock_ready(int skt, int mode, int waitsecs)
-{
-    int ret, err;
-#ifdef USE_POLL
-    struct pollfd sockpoll = { skt, mode ? POLLOUT : POLLIN, waitsecs };
-
-    do { ret = poll(&sockpoll, 1, secs);
-    } while (ret < 0 && errno == EINTR);
-
-    err = sockpoll.revents & POLLERR;
-#else//USE_POLL
-    fd_set rwfds, erfds;
-    FD_ZERO(&rwfds);
-    FD_ZERO(&erfds);
-    do {
-        struct timeval timeout = { waitsecs, 0 };
-        FD_SET(skt, &rwfds);
-        FD_SET(skt, &erfds);
-
-        ret = mode  ? select(skt + 1, NULL, &rwfds, &erfds, &timeout)
-                    : select(skt + 1, &rwfds, NULL, &erfds, &timeout);
-    } while (ret < 0 && errno == EINTR);
-
-    err = FD_ISSET(skt, &erfds);
-#endif//USE_POLL
-    return err && ret > 0 ? -2 : ret;
 }
 
 int
@@ -255,6 +222,38 @@ sock_connect(const char *host, int port, int nowait)
 
     freeaddrinfo(aip);
     return ret < 0 && errno != EINPROGRESS ? eclose(fd) : fd;
+}
+
+// mode: 0=read, 1=write/connect
+int
+sock_ready(int skt, int mode, int waitsecs)
+{
+    int ret, err;
+#ifdef USE_POLL
+    struct pollfd sockpoll = { skt, mode ? POLLOUT : POLLIN,  0 };
+
+    do ret = poll(&sockpoll, 1, waitsecs);
+    while (ret < 0 && errno == EINTR);
+
+    err = sockpoll.revents & POLLERR;
+#else//USE_POLL
+    fd_set rwfds, erfds;
+    FD_ZERO(&rwfds);
+    FD_ZERO(&erfds);
+    do {
+        struct timeval to = { waitsecs, 0 }, *top = waitsecs == WAIT_FOREVER ? NULL : &to;
+
+        FD_SET(skt, &rwfds);
+        FD_SET(skt, &erfds);
+
+        ret = mode  ? select(skt + 1, NULL, &rwfds, &erfds, top)
+                    : select(skt + 1, &rwfds, NULL, &erfds, top);
+    } while (ret < 0 && errno == EINTR);
+
+    err = FD_ISSET(skt, &erfds);
+#endif//USE_POLL
+
+    return err && ret > 0 ? -2 : ret;
 }
 
 int
@@ -478,10 +477,10 @@ dyninit(void)
         sock_cloexec = SOCK_CLOEXEC;    // Safely re-enter dyninit from sock_bind
         int fd = sock_bind("", 0);
         if (fd < 0) {
-            sock_cloexec = 0
+            sock_cloexec = 0;
             cmsg_cloexec = 0;
         } else {
-#           ifdef HAS_ACCEPT4
+#           if defined(linux) && defined(_GNU_SOURCE)
             // Test whether glibc.accept4 really works:
             IN4ADDR sin;
             socklen_t len = sizeof(sin);

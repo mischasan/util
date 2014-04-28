@@ -26,7 +26,7 @@ while (<$ph>) {
     if (my ($var,$imm,$val) = m{^(\S+)\s*(:)?(= ..*)} and !$ignore{$1}) {
         $val =~ s{#}{\\#}g;
         $val =~ s{(\s+)$}{$1#};
-        $use{$_} = 1 for $val =~ m{\$[({]([-.\w]+)(?::[^)]*)[})]}g;
+        $use{$_} = 1 for $val =~ m{\$[(]([-.\w]+)}g;
         $use{$var} = 1 if $imm ||= '';
         $set{$var} = "$imm$val";
     } elsif (m{^\t.} and $rules) {
@@ -50,7 +50,7 @@ while (<$ph>) {
 my @curr = keys %use;
 while (@curr) {
     my $vals = join ' ', map {$set{$_} || ''} @curr;
-    @curr = grep {!$use{$_}++} $vals =~ m{\$[({]([-.\w]+)(?::[^)]*)[})]}g;
+    @curr = grep {!$use{$_}++} $vals =~ m{\$[(]([-.\w]+)}g;
 }
 
 my @vars = sort grep {$set{$_} ||= $ENV{$_}} keys %use;
