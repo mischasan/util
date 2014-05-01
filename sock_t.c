@@ -55,7 +55,7 @@ static void on_alarm(void) { kill(pid, SIGTERM); exit(2); }
 
 int main(int argc, char **argv)
 {
-    plan_tests(32);
+    plan_tests(34);
     char    usock[] = "sock_t.u";
 
     int         port = argc > 1 ? atoi(argv[1]) : 9999;
@@ -64,7 +64,11 @@ int main(int argc, char **argv)
     char const  *host = argc > 2 ? argv[2] : "127.0.0.1";
     setvbuf(stdout, NULL, _IOLBF, 0);
 
-    IPSTR   ip, srvip;
+    IPSTR   ip = "", srvip;
+    ok(host_ip("nobody.home", 80, ip), "unknown hostname");
+    if (ok(!host_ip("google.ca", 80, ip), "google.ca"))
+        fprintf(stderr, "# ip = %s\n", ip);
+
     int     rc, x, c, s = sock_bind(0, port);
     if (!ok(s >= 0, "sock_bind(%d)", port)) die("bind:");
 

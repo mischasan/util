@@ -14,11 +14,19 @@ typedef enum {
     , SOCK_OPTS
 } SOCK_OPT;
 
-typedef char IPSTR[46]; // strlen(IPv4) < 16;  strlen(IPv6) < 46
+#ifndef INET6_ADDRSTRLEN
+#   define INET6_ADDRSTRLEN 46  // netinet/in.h
+#endif
+typedef char IPSTR[INET6_ADDRSTRLEN];
+
+int
+host_ip(char const *host, int port, IPSTR ip);
 
 // 123456789.123456789.123456789.123456789.123456789.
 // xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx\0        - IPv6 max
 // 0000:0000:0000:0000:0000:FFFF:ddd.ddd.ddd.ddd\0  - IPv4 over IPv6
+
+int host_ip(char const *host, int port/*optional*/, IPSTR ip);
 
 int sock_accept(int skt);
 int sock_addr(int skt, IPSTR ip, int *pport, char *name, int size);

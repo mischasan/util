@@ -419,6 +419,24 @@ sock_dest(int skt, IPSTR ip, int *pport)
 #endif
 //--------------|-------|-------------------------------------
 int
+host_ip(char const *host, int port, IPSTR ip)
+{
+    ADRINFO *aip, hint = { AI_NUMERICSERV, AF_UNSPEC, SOCK_STREAM, IPPROTO_TCP,
+                            /*addrlen*/0, /*addr*/0, /*canonname*/0, /*next*/0 };
+
+    char sport[7];
+    if (port > 0) sprintf(sport, "%hu", (uint16_t)port);
+
+    return getaddrinfo(host, port > 0 ? sport : NULL, &hint, &aip) ? -1
+         : -!inet_ntop(aip->ai_family,
+                       aip->ai_family == AF_INET
+                           ? (void*)&((IN4ADDR*)aip->ai_addr)->sin_addr
+                           : (void*)&((IN6ADDR*)aip->ai_addr)->sin6_addr,
+                       ip, sizeof(IPSTR));
+}
+
+//--------------|-------|-------------------------------------
+int
 udp_open(IPSTR const ip, int port)
 {
     dyninit();
