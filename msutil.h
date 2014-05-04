@@ -183,15 +183,18 @@
 
 #ifndef MSUTIL_H
 #define MSUTIL_H
-#ifdef __cplusplus
-#   define BEGIN_C extern "C" {
-#   define END_C   };
-#else
-#   define BEGIN_C
-#   define END_C
-#endif
 
-BEGIN_C
+#ifndef ENTER_C
+#ifdef __cplusplus
+#   define ENTER_C extern "C" {
+#   define LEAVE_C   };
+#else
+#   define ENTER_C
+#   define LEAVE_C
+#endif//__cplusplus
+#endif//ENTER_C
+
+ENTER_C
 
 // Convenient format strings constants e.g. printf("%"FSIZE"X", sizeof thing);
 //  F64:int64_t  FPTR:intptr_t  FSIZE:size_t 
@@ -777,6 +780,6 @@ extern int  const nerrnames;
 extern char const *signame[];
 extern int  const nsignames;
 
-END_C
+LEAVE_C
 
 #endif//MSUTIL_H
