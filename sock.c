@@ -28,6 +28,7 @@
 //XXX make the (sendfd) interface into the only interface?
 //XXX add writev-type interface.
 
+//XXX WIN32 equivalent...
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -48,7 +49,7 @@
 
 #include "sock.h"
 
-#ifdef _WIN32
+#ifdef WIN32
 #   define FD_CLOEXEC   (-1)
 #   define F_GETFL      (-1)
 #   define F_SETFD      (-1)
@@ -56,7 +57,6 @@
 #   define IPPROTO_TCP  (-1)
 #   define O_NONBLOCK   (-1)
 #   define fcntl(a,b,c) (0)    /*!!*/
-#
 #   define poll WSAPoll
 // Windows has no unistd.h:
 extern int unlink(const char *);
@@ -83,7 +83,7 @@ typedef union { IN4ADDR in4; IN6ADDR in6; } INxADDR;
 #define inx_family in4.sin_family
 #define inx_port   in4.sin_port
 
-// dyninit: ensure cloexec supported in runtime env.
+// dyninit: ensure accept4,cloexec supported in runtime env.
 static void dyninit(void);
 static void ininfo(INxADDR const*, IPSTR, int*pport);
 static int  ininit(INxADDR*, IPSTR const, int port);
@@ -101,8 +101,6 @@ static inline int BIT(int u, int m, int op)
 int
 sock_bind(IPSTR const ip, int port)
 {
-    dyninit();
-
     INxADDR addr;
     int addrlen = ininit(&addr, ip, port);
     if (addrlen < 0)
@@ -120,9 +118,9 @@ sock_bind(IPSTR const ip, int port)
 #   endif
     //XXX support bindresvport(), i.e. ask for an arb port in 512..1023?
     return setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &fd, sizeof fd)
-        || bind(fd, (SOADDR*)&addr, addrlen)
-        || listen(fd, 5)
-        ? eclose(fd) : fd;
+            || bind(fd, (SOADDR*)&addr, addrlen)
+            || listen(fd, 5)
+         ? eclose(fd) : fd;
 }
 
 int
@@ -139,45 +137,34 @@ sock_accept(int skt)
     while (fd < 0 && errno == EINTR);
 
     return fd >= 0 && !has_accept4 && fcntl(fd, F_SETFD, FD_CLOEXEC)
-            ? eclose(fd) : fd;
+         ? eclose(fd) : fd;
 }
 
 int
 sock_create(char const *path)
 {
-    dyninit();
-
     UNADDR sun;
-    int len = uninit(&sun, path);
-    if (!len)
-        return errno = EINVAL, -1;
+    int fd, len = uninit(&sun, path);
+    if (!len) return errno = EINVAL, -1;
+    if (unlink(path) && errno != ENOENT) return -1;
+    if (0 > (fd = sockit(AF_UNIX))) return -1;
 
-    if (unlink(path) && errno != ENOENT)
-        return -1;
-
-    int fd = sockit(AF_UNIX);
-    if (fd < 0)
-        return -1;
-
-    return (   setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &fd, sizeof fd)
-            || bind(fd, (SOADDR*)&sun, sizeof sun.sun_family + len)
-            || listen(fd, 5)
-           ) ? eclose(fd) : fd;
+    return setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &fd, sizeof fd)
+           || bind(fd, (SOADDR*)&sun, sizeof sun.sun_family + len)
+           || listen(fd, 5)
+         ? eclose(fd) : fd;
 }
 
 int
 sock_open(char const *path)
 {
-    dyninit();
-
     struct stat st;
     UNADDR sun;
     int fd, ret, len = uninit(&sun, path);
     if (!len || stat(path, &st) || !S_ISSOCK(st.st_mode))
         return errno = EINVAL, -1;
 
-    if (0 > (fd = sockit(AF_UNIX)))
-        return -1;
+    if (0 > (fd = sockit(AF_UNIX))) return -1;
 
     do ret = connect(fd, (SOADDR*)&sun, SUN_LEN(&sun));
     while (ret < 0 && errno == EINTR);
@@ -198,8 +185,6 @@ sock_close(int skt)
 int
 sock_connect(const char *host, int port, int nowait)
 {
-    dyninit();
-
     char sport[7];
     sprintf(sport, "%hu", (uint16_t)port);
     ADRINFO *aip, hint = {
@@ -207,8 +192,7 @@ sock_connect(const char *host, int port, int nowait)
         /*addrlen */0, /*addr */0, /*canonname */0, /*next */0
     };
 
-    if (getaddrinfo(host, sport, &hint, &aip))
-        return -1;
+    if (getaddrinfo(host, sport, &hint, &aip)) return -1;
 
     // "ai_family" usable here because PF_INET=AF_INET, PF_INET6=AF_INET6.
     int fd = sockit(aip->ai_family), ret = -1;
@@ -259,24 +243,18 @@ sock_ready(int skt, int mode, int waitsecs)
 int
 sock_recv(int skt, char *buf, int size)
 {
-    dyninit();
-
     int ret;
     do ret = recv(skt, buf, size, 0);
     while (ret < 0 && errno == EINTR);
-
     return ret;
 }
 
 int
 sock_send(int skt, char const *buf, int size)
 {
-    dyninit();
-
     int ret;
     do ret = send(skt, buf, size, 0);
     while (ret < 0 && errno == EINTR);
-
     return ret;
 }
 
@@ -308,8 +286,6 @@ sock_recvfd(int skt, int *pfd, char *buf, int size)
 int
 sock_sendfd(int skt, int fd, char const *buf, int size)
 {
-    dyninit();
-
     char          x = 0;
     FDCMSG        ctl = { fdc_hdr, fd };
     struct iovec  iov[2] = { {&x, sizeof x}, {(void *) (intptr_t) buf, size} };
@@ -335,8 +311,6 @@ static struct { int lvl, opt; } opts[SOCK_OPTS] = {
 int
 sock_getopt(int skt, SOCK_OPT opt)
 {
-    dyninit();
-
     int         ret, val;
     socklen_t   len;
 
@@ -359,23 +333,19 @@ sock_getopt(int skt, SOCK_OPT opt)
 int
 sock_setopt(int skt, SOCK_OPT opt, int val)
 {
-    dyninit();
-
     if (opt >= SOCK_OPTS) return errno = EINVAL, -1;
 
     struct linger lng = { val > 0, val }; //XXX why winwarn?
-    return opt == LINGER ?
-            setsockopt(skt, SOL_SOCKET, SO_LINGER, &lng, sizeof lng)
-        : opts[opt].lvl == F_GETFL ?
-            fcntl(skt, F_SETFL, BIT(fcntl(skt, F_GETFL, 0), opts[opt].opt, val))
-        :   setsockopt(skt, opts[opt].lvl, opts[opt].opt, &val, sizeof val);
+    return opt == LINGER
+             ? setsockopt(skt, SOL_SOCKET, SO_LINGER, &lng, sizeof lng)
+           : opts[opt].lvl == F_GETFL
+             ? fcntl(skt, F_SETFL, BIT(fcntl(skt, F_GETFL, 0), opts[opt].opt, val))
+             : setsockopt(skt, opts[opt].lvl, opts[opt].opt, &val, sizeof val);
 }
 
 int
 sock_addr(int skt, IPSTR ip, int *pport, char *name, int size)
 {
-    dyninit();
-
     INxADDR sin;
     socklen_t len = sizeof(sin);
     if (0 > getsockname(skt, (SOADDR*)&sin, &len))
@@ -389,12 +359,9 @@ sock_addr(int skt, IPSTR ip, int *pport, char *name, int size)
 int
 sock_peer(int skt, IPSTR ip, int *pport, char *name, int size)
 {
-    dyninit();
-
     INxADDR sin;
     socklen_t len = sizeof(sin);
-    if (0 > getpeername(skt, (SOADDR*)&sin, &len))
-        return -1;
+    if (0 > getpeername(skt, (SOADDR*)&sin, &len)) return -1;
 
     ininfo(&sin, ip, pport);
     return -(name && size &&
@@ -406,8 +373,6 @@ sock_peer(int skt, IPSTR ip, int *pport, char *name, int size)
 int
 sock_dest(int skt, IPSTR ip, int *pport)
 {
-    dyninit();
-
     INxADDR sin;
     socklen_t len = sizeof sin;
     if (0 > getsockopt(skt, SOL_IP, SO_ORIGINAL_DST, (SOADDR*)&sin, &len))
@@ -427,12 +392,12 @@ host_ip(char const *host, int port, IPSTR ip)
     char sport[7];
     if (port > 0) sprintf(sport, "%hu", (uint16_t)port);
 
-    return getaddrinfo(host, port > 0 ? sport : NULL, &hint, &aip) ? -1
-         : -!inet_ntop(aip->ai_family,
-                       aip->ai_family == AF_INET
-                           ? (void*)&((IN4ADDR*)aip->ai_addr)->sin_addr
-                           : (void*)&((IN6ADDR*)aip->ai_addr)->sin6_addr,
-                       ip, sizeof(IPSTR));
+    return -(getaddrinfo(host, port > 0 ? sport : NULL, &hint, &aip) ||
+             !inet_ntop(aip->ai_family,
+                        aip->ai_family == AF_INET
+                            ? (void*)&((IN4ADDR*)aip->ai_addr)->sin_addr
+                            : (void*)&((IN6ADDR*)aip->ai_addr)->sin6_addr,
+                        ip, sizeof(IPSTR)));
 }
 
 //--------------|-------|-------------------------------------
@@ -448,16 +413,14 @@ udp_open(IPSTR const ip, int port)
     if (addrlen < 0) return addrlen;
 
     int fd = socket(addr.inx_family, SOCK_DGRAM | sock_cloexec, IPPROTO_UDP);
-    return fd >= 0 && ((!sock_cloexec && fcntl(fd, F_SETFD, FD_CLOEXEC)) ||
-                       (port && bind(fd, (SOADDR*)&addr, addrlen))
-        )? eclose(fd) : fd;
+    return fd >= 0 && ((!sock_cloexec && fcntl(fd, F_SETFD, FD_CLOEXEC))
+                       || (port && bind(fd, (SOADDR*)&addr, addrlen))
+                      ) ? eclose(fd) : fd;
 }
 
 int
 udp_recv(int fd, char *buf, int size, IPSTR ip, int *port)
 {
-    dyninit();
-
     INxADDR     addr;
     socklen_t   addrlen = sizeof(addr);
     int         len;
@@ -471,8 +434,6 @@ udp_recv(int fd, char *buf, int size, IPSTR ip, int *port)
 int
 udp_send(int fd, char const *buf, int size, IPSTR const ip, int port)
 {
-    dyninit();
-
     INxADDR addr;
     int ret, addrlen = ininit(&addr, ip, port);
     do ret = sendto(fd, buf, size, /*flags*/0, (SOADDR const*) &addr, addrlen);
@@ -522,9 +483,9 @@ dyninit(void)
 static int
 sockit(int domain)
 {
+    dyninit();
     int fd = socket(domain, SOCK_STREAM | sock_cloexec, 0);
-    return fd >= 0 && !sock_cloexec && fcntl(fd, F_SETFD, FD_CLOEXEC)
-            ? eclose(fd) : fd;
+    return fd >= 0 && !sock_cloexec && fcntl(fd, F_SETFD, FD_CLOEXEC) ? eclose(fd) : fd;
 }
 
 static int
@@ -546,12 +507,11 @@ static void
 ininfo(INxADDR const*xp, IPSTR ip, int *pport)
 {
     if (pport) *pport = ntohs(xp->inx_port);
-    if (!ip) return;
-    if (xp->inx_family == AF_INET)
-        inet_ntop(AF_INET,  (void const*)&xp->in4.sin_addr,  ip, sizeof(IPSTR));
-    else
-        inet_ntop(AF_INET6, (void const*)&xp->in6.sin6_addr, ip, sizeof(IPSTR));
-}
+    if (ip) inet_ntop(AF_INET,
+                      xp->inx_family == AF_INET ? (void const*)&xp->in4.sin_addr 
+                                                : (void const*)&xp->in6.sin6_addr,
+                      ip, sizeof(IPSTR));
+    }
 
 static int
 ininit(INxADDR *xp, IPSTR const ip, int port)

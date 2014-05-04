@@ -19,9 +19,6 @@ typedef enum {
 #endif
 typedef char IPSTR[INET6_ADDRSTRLEN];
 
-int
-host_ip(char const *host, int port, IPSTR ip);
-
 // 123456789.123456789.123456789.123456789.123456789.
 // xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx\0        - IPv6 max
 // 0000:0000:0000:0000:0000:FFFF:ddd.ddd.ddd.ddd\0  - IPv4 over IPv6

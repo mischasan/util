@@ -1,4 +1,9 @@
 -:[bs]ug  +:done  x:nope  ^:forwarded  #:note  ?:question
+Sun May  4 11:10:54 PDT 2014
+- [May 4] sock.c cleanup:
+    - reduce the number of dyninit calls; just confusing
+    - make sure it has the right WIN32 headers (not just ifdefs)
+    -? does sock_open(symlink-to-unixsocket) work? 
 
 Fri Mar 14 11:12:48 PDT 2014
 - write bpsearch_t.c

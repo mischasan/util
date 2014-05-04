@@ -55,7 +55,7 @@ static void on_alarm(void) { kill(pid, SIGTERM); exit(2); }
 
 int main(int argc, char **argv)
 {
-    plan_tests(34);
+    plan_tests(36);
     char    usock[] = "sock_t.u";
 
     int         port = argc > 1 ? atoi(argv[1]) : 9999;
@@ -234,6 +234,9 @@ int main(int argc, char **argv)
     char    req[] = "GET / HTTP/1.0\r\n\r\n";
     rc = sock_send(x, req, strlen(req));
     ok(rc < 0, "send while connect is EINPROGRESS fails: %d (%s)", rc, errname[errno]);
+    ok(sock_ready(x, /*WRITE|CONNECT*/1, /*SECS*/1), "connect ready in 1 sec");
+    rc = sock_send(x, req, strlen(req));
+    ok(rc > 0, "send now succeeds");
 
     unlink(usock);
 #   undef  _
