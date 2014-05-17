@@ -485,6 +485,14 @@ sockit(int domain)
 {
     dyninit();
     int fd = socket(domain, SOCK_STREAM | sock_cloexec, 0);
+    if (fd < 0) return fd;
+#if defined(__APPLE__) && defined(SO_NOSIGPIPE)
+    // If the connection breaks. the client finds out because SEND fails (RECV just waits).
+    //  On Darwin, by default, writing to a broken connection throws SIGPIPE.
+    int on = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, (const void *) &on, sizeof on))
+        return eclose(fd);
+#endif
     return fd >= 0 && !sock_cloexec && fcntl(fd, F_SETFD, FD_CLOEXEC) ? eclose(fd) : fd;
 }
 
