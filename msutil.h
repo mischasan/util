@@ -76,39 +76,6 @@
 //      flag_any(flag)                  Signal any one watching thread.
 //      flag_all(flag)                  Signal all watching threads.
 //
-// SOCK: simple socket interface using only std "C" types
-//       int: skt, nowait, port, size, val     char*: host, ip, buf, name
-//          Int values are in HOST byte order.
-//	    IP values are string-format IPv4/IPv6 addresses;
-//              "" or NULL => INADDR_ANY, "::" => IN6ADDR_ANY.
-//          All but (sock_getopt,sock_recv*) return fd>= 0 or 0=okay or -1=error.
-//          ALL sockets are created with CLOEXEC.
-//
-//      sock_addr(skt, IPSTR, &port, name, namesize)
-//      sock_bind(ipstr,port)       Create Inet socket (server)
-//      sock_create(path)           Create Unix socket (server)
-//      sock_accept(skt)
-//      sock_connect(host|ip, port, nowait)
-//      sock_open(path)             Connect to unix socket.
-//      sock_getopt(skt, SOCK_OPT)
-//      sock_setopt(skt, SOCK_OPT, val)
-//      sock_recv(skt, buf, size)
-//      sock_send(skt, buf, size)
-//  Unix sockets only:
-//      sock_recvfd(skt, &fd, buf, size)
-//      sock_sendfd(skt,  fd, buf, size)
-//          NOTE: if recvfd has a smaller buffer than sendfd, or if send is
-//          used instead of sendfd, data and message boundaries are lost.
-//          Never mix send/recv and sendfd/recvfd on the same connection.
-//  For Inet sockets; any ptr may be 0:
-//      sock_peer(skt, &ip, &port, &host, size)
-//  For Inet sockets on Linux: retrieve original destination:
-//      sock_dest(skt, &ip, &port)
-//  UDP sockets:
-//      udp_open(ipstr, port)
-//      udp_send(skt, buf, len, ip, port)
-//      udp_recv(skt, buf, len, ip, &port)
-//
 // ROLLHASH: rolling hash. See rollhash_t.c for usage.
 //
 // MISCELLANEOUS
@@ -281,6 +248,8 @@ static inline unsigned long long bswap_64(unsigned long long x) { return (((unsi
 #include <sys/types.h>
 #include <unistd.h>         // _exit etc
 
+#include "sock.h"
+
 typedef int (*qsort_cmp)(const void *, const void *);
 typedef int (*qsort_r_cmp)(const void*, const void*, void*);
 
@@ -381,45 +350,6 @@ void mmhash3_x86_16(uint8_t const *key, int len, uint8_t out[16], uint32_t seed)
 void mmhash3_x64_04(uint8_t const *inp, int len, uint8_t out[ 4], uint32_t seed);
 void mmhash3_x64_08(uint8_t const *inp, int len, uint8_t out[ 8], uint32_t seed);
 void mmhash3_x64_16(uint8_t const *key, int len, uint8_t out[16], uint32_t seed);
-//--------------|-----------------------------------------------
-// EZ socket library interface: nothing but "C" types and SOCK_OPT.
-typedef enum {
-      KEEPALIVE // TCP keepalive
-    , NODELAY   // Nonbuffered TCP, for tty-like responsiveness
-    , NOWAIT    // nonblocking I/O
-    , RCVSIZE   // (size) buffer size
-    , SNDSIZE   // (size) buffer size
-    , CONERR    // connection state (0 == connected).
-    , LINGER    // (secs) bg delay to flush output after close
-    , SOCK_OPTS
-} SOCK_OPT;
-
-typedef char IPSTR[46]; // strlen(IPv4) < 16;  strlen(IPv6) < 46
-// 123456789.123456789.123456789.123456789.123456789.
-// xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx\0        - IPv6 max
-// 0000:0000:0000:0000:0000:FFFF:ddd.ddd.ddd.ddd\0  - IPv4 over IPv6
-
-int sock_accept(int skt);
-int sock_addr(int skt, IPSTR ip, int *pport, char *name, int size);
-int sock_bind(IPSTR const ip, int port);
-void sock_close(int skt);
-int sock_connect(char const *host, int port, int nowait);
-int sock_create(char const *path);
-#ifdef linux
-int sock_dest(int skt, IPSTR ip, int *pport);
-#endif
-int sock_getopt(int skt, SOCK_OPT);
-int sock_open(char const *path);
-int sock_peer(int skt, IPSTR ip, int *pport, char *name, int size);
-int sock_recv(int skt, char *buf, int size);
-int sock_recvfd(int skt, int *pfd, char *buf, int size);
-int sock_send(int skt, char const*buf, int size);
-int sock_sendfd(int skt, int fd, char const*buf, int size);
-int sock_setopt(int skt, SOCK_OPT, int val);
-
-int udp_open(IPSTR const ip, int port);
-int udp_recv(int fd, char *buf, int size, IPSTR ip, int *port);
-int udp_send(int fd, char const *buf, int size, IPSTR const ip, int port);
 //--------------|-----------------------------------------------
 //@map - variable-sized in-memory hash tables using open hashing.
 //	"map" is a base implementation of (key,val) lookup.

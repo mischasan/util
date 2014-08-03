@@ -524,7 +524,7 @@ ininfo(INxADDR const*xp, IPSTR ip, int *pport)
 static int
 ininit(INxADDR *xp, IPSTR const ip, int port)
 {
-#   ifdef __FreeBSD__
+#   if defined(__FreeBSD__) || defined(__APPLE__)
 #       define SETLEN(x) (int)(xp->in4.sin_len = (x))
 #   else
 #       define SETLEN(x) (int)(x)

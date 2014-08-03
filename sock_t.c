@@ -31,6 +31,7 @@ XXX add test cases:
 //XXX add functionality: send/recv BUFVEC's
 #endif
 #include "msutil.h"
+#include "sock.h"
 #include <errno.h>
 #include <fcntl.h>      // open
 #include <signal.h>
@@ -38,7 +39,6 @@ XXX add test cases:
 #include <sys/wait.h>
 #include <sys/socket.h> // SOCK_CLOEXEC
 #include <tap.h>
-
 
 #if !__BSD_VISIBLE
     typedef __sighandler_t sig_t;

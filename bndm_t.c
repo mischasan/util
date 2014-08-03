@@ -25,8 +25,9 @@ int main(int argc, char **argv)
 {
     plan_tests(1);
     char dflt[] = "one", *patt = argc > 1 ? argv[1] : dflt;
-    char const *file = argc > 2 ? argv[2] : "words";
-    FILE *fp = fopen(file, "r");
+    char const *util = getenv("util") ? getenv("util") : ".";
+    char const *file = argc > 1 ? argv[1] : "words";
+    FILE *fp = fopenf("r", "%s/%s", util, file);
     if (!fp) return fprintf(stderr, "bndm_t: cannot open %s\n", file);
     int patlen = strlen(patt), lines = 0, goods = 0, hits = 0;
     char buf[999];

@@ -172,7 +172,7 @@ int
 bpsearch_scan(BPSEARCH *bp, MEM text, uint* matchnum, uint*matchpos)
 {
     byte    btarget[(text.len + 3) / 4];
-    MEMREF  sstext = { btarget, text.len / 4 };
+    MEMREF  sstext = { (char const*)btarget, text.len / 4 };
     BPMATCH ctx = { bp->bpattv, btarget, text.len, ~post_mask[text.len % 4], matchnum, matchpos };
 
     acgtpack(text.ptr, text.len, btarget);

@@ -7,14 +7,14 @@
 ifndef RULES_MK
 RULES_MK:=1 # Allow repeated "-include".
 
-PS4             := \# # Prefix for "sh -x" output.
-export LD_LIBRARY_PATH PS4
+export LD_LIBRARY_PATH
+PS4             = \# # Prefix for "sh -x" output.
+SHELL           = /bin/bash
 
 # Import from PREFIX, export to DESTDIR.
 PREFIX          ?= /usr/local
 DESTDIR         ?= $(PREFIX)
-OSName          := $(shell uname -s)
-OSNAME          := $(shell uname -s | tr '[a-z]' '[A-Z]')
+OS              := $(shell uname -s)
 
 # HACK CentOS 5 comes with gcc 4.1, gcc 4.4 requires a special command
 #CC              = /usr/bin/gcc44
@@ -33,7 +33,7 @@ LDFLAGS.profile = -pg
 # PROFILE tests get stats on syscalls in their .pass files.
 exec.profile	= strace -cf
 
-#--- *.$(OSName):
+#--- *.$(OS):
 CFLAGS.Darwin   = 
 LDLIBS.FreeBSD  = -lm
 LDLIBS.Linux    = -ldl -lm -lresolv
@@ -43,18 +43,18 @@ Wno-unused-result := $(shell $(CC) -dumpversion | awk '$$0 >= 4.5 {print "-Wno-u
 
 # XXX -funsigned-char would save time.
 CFLAGS          += -ggdb -MMD -fdiagnostics-show-option -fstack-protector --param ssp-buffer-size=4 -fno-strict-aliasing
-#CFLAGS          += -Wall -Werror -Wextra -Wcast-align -Wcast-qual -Wformat=2 -Wformat-security -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wno-unknown-pragmas -Wunused -Wwrite-strings
+CFLAGS          += -Wall -Werror -Wextra -Wcast-align -Wcast-qual -Wformat=2 -Wformat-security -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wno-unknown-pragmas -Wunused -Wwrite-strings
 CFLAGS          += -Wno-attributes -Wno-cast-qual -Wno-unknown-pragmas $(Wno-unused-result)
-CFLAGS          += $(CFLAGS.$(BLD)) $(CFLAGS.$(OSName))
+CFLAGS          += $(CFLAGS.$(BLD)) $(CFLAGS.$(OS))
 
 CXXFLAGS += $(filter-out -Wmissing-prototypes -Wnested-externs -Wstrict-prototypes, $(CFLAGS))
 
 # -D_FORTIFY_SOURCE=2 on some plats rejects any libc call whose return value is ignored.
 #   For some calls (system, write) this makes sense. For others (vasprintf), WTF?
 
-CPPFLAGS        += -I$(PREFIX)/include -DPLATFORM_$(OSNAME) -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD)) $(CPPFLAGS.$(OSName))
-LDFLAGS         += -L$(PREFIX)/lib $(LDFLAGS.$(BLD)) $(LDFLAGS.$(OSName))
-LDLIBS          += $(LDLIBS.$(OSName))
+CPPFLAGS        += -I$(PREFIX)/include -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD)) $(CPPFLAGS.$(OS))
+LDFLAGS         += -L$(PREFIX)/lib $(LDFLAGS.$(BLD)) $(LDFLAGS.$(OS))
+LDLIBS          += $(LDLIBS.$(OS))
 
 #---------------- Explicitly CANCEL EVIL BUILTIN RULES:
 %               : %.c 
@@ -67,7 +67,7 @@ LDLIBS          += $(LDLIBS.$(OSName))
 .DEFAULT_GOAL   := all
 
 # $(all) contains all subproject names. It can be used in ACTIONS but not RULES,
-# since it accumulates across "include */GNUmakefile"'s.
+#   since it accumulates across "include */GNUmakefile"'s.
 
 # All $(BLD) types use the same pathnames for binaries.
 # To switch from release to debug, first "make clean".
@@ -75,8 +75,8 @@ LDLIBS          += $(LDLIBS.$(OSName))
 
 all             :;@echo "$@ done for BLD='$(BLD)'"
 clean           :;@rm -rf $(shell $(MAKE) -nps all test cover profile | sed -n '/^# I/,$${/^[^\#\[%.][^ %]*: /s/:.*//p;}') \
-			  $(clean)  $(foreach A,$(all), $($A)/{gmon.out,tags,*.fail,*.gcda,*.gcno,*.gcov,*.prof}) \
-                          $(filter %.d,$(MAKEFILE_LIST))
+                          $(foreach A,$(all), $($A)/{gmon.out,tags,*.fail,*.gcda,*.gcno,*.gcov,*.prof}) \
+                          $(clean)  $(filter %.d,$(MAKEFILE_LIST))
 
 cover           : BLD := cover
 %.cover         : %.test    ; gcov -bcp $($@) | covsum
@@ -94,8 +94,8 @@ Install         = if [ "$(strip $2)" ]; then mkdir -p $1; pax -rw -pe -s:.*/:: $
 ToUpper = $(shell echo $1 | tr '[a-z]' '[A-Z]')
 
 # If you believe in magic vars, e.g. "myutil.bin = prog1 prog2 prog3"
-# causing "myutil.install" to copy those files to $(DESTDIR)/bin
-# then here's your automagic "install":
+#   causing "myutil.install" to copy those files to $(DESTDIR)/bin
+# t hen here's your automagic "install":
 #XXX use global vars (bin lib ...) to which all subprojects += ...
 %.install       : %.all $(%.bin) $(%.etc) $(%.include) $(%.ini) $(%.lib) $(%.sbin) \
                 ;@$(call Install,$(DESTDIR)/bin,    $($*.bin))  \
@@ -105,15 +105,8 @@ ToUpper = $(shell echo $1 | tr '[a-z]' '[A-Z]')
                 ; $(call Install,$(DESTDIR)/sbin,   $($*.sbin)) \
                 ; $(call Install,$(DESTDIR)/include,$($*.include))
 
-#$(DESTDIR)/bin/%	: %; $(call Install,$(@D),$<)
-#$(DESTDIR)/etc/%	: %; $(call Install,$(@D),$<)
-#$(DESTDIR)/include/% 	: %; $(call Install,$(@D),$<)
-#$(DESTDIR)/ini/%	: %; $(call Install,$(@D),$<)
-#$(DESTDIR)/lib/% 	: %; $(call Install,$(@D),$<)
-#$(DESTDIR)/sbin/% 	: %; $(call Install,$(@D),$<)
-
 profile         : BLD := profile
-%.profile       : %.test    ;@for x in $($*.test:.pass=); do gprof -b $$x >$$x.prof; done
+%.profile       : test    ;@for x in $($*.test:.pass=); do gprof -b $$x >$$x.prof; done
 
 %.test          : $(%.test)
 # GMAKE trims leading "./" from $*.; $(*D)/$(*F) restores it.
@@ -125,7 +118,7 @@ profile         : BLD := profile
 %.so            : %.a       ; $(CC) $(CFLAGS)  -o $@ -shared -Wl,-whole-archive $< $(LDLIBS)
 %.a             :           ; [ "$^" ] && ar crs $@ $(filter %.o,$^)
 %.yy.c          : %.l       ; flex -o $@ $<
-%.tab.c 	: %.y       ; bison $<
+%.tab.c 	    : %.y       ; bison $<
 %/..            :           ;@mkdir -p $(@D)
 %               : %.gz      ; gunzip -c $^ >$@
 
@@ -142,17 +135,17 @@ gccdefs         :;@$(CC) $(CPPFLAGS) -E -dM - </dev/null | cut -c8- | sort
 tags            : all; ctags $(filter %.c %.cpp %.h, $(source))
 # sh : invoke a shell within the makefile's env:
 sh   		:; PS1='$(PS1) [make] ' $(SHELL)
-
-# %.I lists all (recursive) #included files; e.g.: "make /usr/include/errno.h.I"
-%.I             : %.c       ;@ls -1 2>&- `$(CC) $(CPPFLAGS) -M $<` ||:
-%.I             : %.cpp     ;@ls -1 2>&- `$(CXX) $(CPPFLAGS) -M $<` ||:
-%.i             : %.c       ; $(COMPILE.c) -E -o $@ $<
-%.i             : %.cpp     ; $(COMPILE.cpp) -E -o $@ $<
-%.s             : %.c       ; $(COMPILE.c) -S -o $@ $< && deas $@
-%.s             : %.cpp     ; $(COMPILE.cpp) -S -o $@ $< && deas $@
-
 # "make SomeVar." prints $(SomeVar)
 %.              :;@echo '$($*)'
+
+# %.I lists all (recursive) #included files; e.g.: "make /usr/include/errno.h.I"
+%.I             : %.c       ;@ls -1 2>&- `$(CC)  $(CPPFLAGS) -M $<` ||:
+%.I             : %.cpp     ;@ls -1 2>&- `$(CXX) $(CPPFLAGS) -M $<` ||:
+%.i             : %.c       ; $(COMPILE.c)   -E -o $@ $<
+%.i             : %.cpp     ; $(COMPILE.cpp) -E -o $@ $<
+%.s             : %.c       ; $(COMPILE.c)   -S -o $@ $< && deas $@
+%.s             : %.cpp     ; $(COMPILE.cpp) -S -o $@ $< && deas $@
+
 
 endif
 # vim: set nowrap :

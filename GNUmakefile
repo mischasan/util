@@ -10,7 +10,7 @@ util.c          = $(patsubst %,$(util)/%, acstr.c bitmat.c bloom.c bndmem.c bpse
 util.progs      = $(patsubst %,$(util)/%, bloom_x brk_x gai hash_x memx nolock sock_x sort_x stress thread_x tt)
 
 #util_tpgms      = bitmat_t bloom_t bndm_t bppack_t maccess_t msutil_t scan_t sheap_t sock_t subref_t tolog_t udp_t ucs_utf_t uri_t 
-util_tpgms      = bitmat_t bloom_t bndm_t bppack_t maccess_t msutil_t scan_t sheap_t sock_t subref_t tolog_t udp_t uri_t 
+util_tpgms      = bitmat_t bloom_t bndm_t maccess_t msutil_t scan_t sheap_t sock_t subref_t tolog_t udp_t uri_t 
 util.tpgms      = $(patsubst %,$(util)/%, $(util_tpgms) fnv_x map_x ordhuff_x psearch_x psearch_mmap_x rollhash_x rsort_x ssearch_x str_x)
 util.test       = $(patsubst %,$(util)/%.pass, $(util_tpgms) fnv_t map_t ordhuff_t psearch_t rsort_t ssearch_t str_t)
 util.pgms       = $(patsubst %,$(util)/%, concurs realpath)
