@@ -19,7 +19,7 @@
 //-------------------------------------------------------------------
 
 #include "msutil.h"
-#include <tap.h>
+#include "tap.h"
 
 static void try(int line, char const *req, MEMREF s, MEMREF a, MEMREF h, MEMREF port, MEMREF p, MEMREF q, MEMREF f);
 

@@ -24,7 +24,7 @@
 
 #include <errno.h>
 #include <netinet/in.h>     // INADDR_LOOPBACK
-#include <tap.h>
+#include "tap.h"
 #include "msutil.h"
 
 int main(void)

@@ -18,8 +18,8 @@
 // IF YOU ARE UNABLE TO WORK WITH GPL2, CONTACT ME.
 //-------------------------------------------------------------------
 
-#include <tap.h>
-#include <msutil.h>
+#include "tap.h"
+#include "msutil.h"
 
 void prbm(BITMAT const*);
 void dotest(int nrows, int ncols, int *xys);

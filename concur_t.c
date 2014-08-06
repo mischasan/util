@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>        // getenv
-#include <tap.h>
+#include "tap.h"
 #include "concur.h"
 
 int

@@ -2,7 +2,7 @@
 //-------------------------------------------------------------------
 
 #include "msutil.h"
-#include <tap.h>
+#include "tap.h"
 #include "ssearch.h"
 
 extern int ssearch_skip[16];

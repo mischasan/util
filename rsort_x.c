@@ -23,7 +23,7 @@
 #include "msutil.h"	// slurp ...
 #include <sys/resource.h>
 #ifdef TAP
-#include <tap.h>
+#include "tap.h"
 #endif
 #include "rsort.h"
 

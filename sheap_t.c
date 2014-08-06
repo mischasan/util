@@ -18,8 +18,8 @@
 // IF YOU ARE UNABLE TO WORK WITH GPL2, CONTACT ME.
 //-------------------------------------------------------------------
 
-#include <msutil.h>
-#include <tap.h>
+#include "msutil.h"
+#include "tap.h"
 #include "sheap.h"
 
 typedef struct { char const *name; SCORE val; } NAMEVAL;
