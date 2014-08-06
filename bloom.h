@@ -25,7 +25,7 @@ int bloom_stat(BLOOM const*);
 // bloom_over: number of overflows. If >npoints/64, point_bits is too small.
 int bloom_over(BLOOM const*);
 
-#ifdef _STDIO_H
+#ifdef EOF
 void bloom_dump(BLOOM const*, FILE*);
 #endif
 
