@@ -19,7 +19,7 @@
 //-------------------------------------------------------------------
 
 #include <msutil.h>
-#include <tap.h>
+#include "tap.h"
 #include "bloom.h"
 
 extern int _bloomax;

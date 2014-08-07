@@ -19,7 +19,7 @@
 //-------------------------------------------------------------------
 
 #include "msutil.h"
-#include <tap.h>
+#include "tap.h"
 
 const char *keyv[] = {
 	"alpha","beta",	"gamma","delta","epsilon","zeta",

@@ -19,7 +19,7 @@
 //-------------------------------------------------------------------
 
 #include "msutil.h"
-#include <tap.h>
+#include "tap.h"
 #include "psearch.h"
 
 static int nmatches = 0;

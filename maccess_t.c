@@ -24,7 +24,7 @@
 #include <fcntl.h>      // open
 #include <unistd.h>     // unlink
 #include <sys/mman.h>
-#include <tap.h>
+#include "tap.h"
 
 typedef void(*vvfunc)(void);
 extern uintptr_t maccess_top(void);

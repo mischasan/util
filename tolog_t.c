@@ -20,7 +20,7 @@
 
 #include "msutil.h"
 #include <stdarg.h>
-#include <tap.h>
+#include "tap.h"
 
 // Mock syslog; there's no other reliable way to read the log.
 void syslog(int pri, const char *fmt, ...);

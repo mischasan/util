@@ -19,7 +19,7 @@
 //-------------------------------------------------------------------
 
 #include "msutil.h"
-#include <tap.h>
+#include "tap.h"
 
 static inline int isign(int a)
 { return a < 0 ? -1 : !!a; }

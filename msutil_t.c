@@ -18,7 +18,7 @@
 // IF YOU ARE UNABLE TO WORK WITH GPL2, CONTACT ME.
 //-------------------------------------------------------------------
 
-#include <tap.h>
+#include "tap.h"
 #include "msutil.h"
 #include "xmutil.h"
 

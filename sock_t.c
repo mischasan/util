@@ -38,7 +38,7 @@ XXX add test cases:
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/socket.h> // SOCK_CLOEXEC
-#include <tap.h>
+#include "tap.h"
 
 #if !__BSD_VISIBLE
     typedef __sighandler_t sig_t;
