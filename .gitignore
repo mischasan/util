@@ -1,4 +1,4 @@
-# compiled programs:
+# Compiled programs:
 # fnv_t map_t ssearch_t str_t are SCRIPTS oops
 *_[tx]
 concurs
@@ -7,11 +7,18 @@ realpath
 stress
 # intermediate files:
 *.[adios]
-# test byproducts:
+# Test byproducts:
 *.fail
 *.pass
-*.swp
-*.tmp
 88.tab
 osho.txt
+# Temp files :
+*.swp
+*.tmp
+frog
+toad
+newt
+bufo
+rana
+sapo
 words

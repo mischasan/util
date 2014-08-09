@@ -1,7 +1,9 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+use Data::Dumper;
 
+sub demangle { `c++filt @_` }
 sub slurpv { open my $fh, $_[0] or die "cannot open $_[0]"; [<$fh>]; }
 
 for my $fname (@ARGV) {
@@ -13,27 +15,34 @@ for my $fname (@ARGV) {
     # "B.." if a label is only the target of back jumps.
     # "L.." otherwise
 
-    my %labdef;     # Map .Lxxx to 1...
+    my @labdef;     # label definitions in order of occurrence.
+    my %labdef;     # indicates a label is defined or not (at time of use)
     my %labuse;     # indicates F and B uses of a label.
-    my $labnum = 0;
+
     for (@$src) {
-        if (m{^(\.L[0-9]*):}) {     # ascending numbers for labels
-            $labdef{$1} = ++$labnum;
-        } elsif (m{\tj[bplasmogen].*(\.L[0-9]*)$}) { # jump => interesting label
+        if (m{^(\.?L[0-9A-Z]*):}) {     # ascending numbers for labels
+            push @labdef,$1;
+            $labdef{$1} = 1;
+        } elsif (m{\tj[bplasmogen]\t(\.?L[0-9A-Z]*)$}) { # jump => interesting label
             $labuse{$1} = ($labuse{$1} || '') . ($labdef{$1} ? 'B' : 'F');
         } elsif (!m{ "/usr/|<built-in>} && m{\.file (\d+) "([^"]*)"}) {   # source file declaration
             # gcc 4.3.4 may emit "file N <built-in>"
             $file[$1] = -f $2 ? slurpv $2 : [];
             s/^\s*}\s*$|.*(?:__builtin|__extension).*// for @{$file[$1]};
+        } else {
+            s{^(_\w+):}{demangle $1}e;
+            s{((?:call|jmp)\s+)(_\w+)}{$1.demangle $2}e;
         }
     }
-
-    s{.*FB}{L} for values %labuse;
-    $labdef{$_} = substr($labuse{$_},0,1) . $labdef{$_} for keys %labuse;
+    s{.*FB.*}{L} for values %labuse;
+    @labdef = grep {$labuse{$_}} @labdef;
+    %labdef = map {$labdef[$_] => substr($labuse{$labdef[$_]},0,1) . $_} 0..$#labdef;
+    #$labdef{$_} = substr($labuse{$_},0,1) . $labdef{$_} for grep keys %labuse;
 
     # Reprocess output, inserting source lines and replacing labels:
   
     open my $out, ">$fname.tmp" or die "$fname.tmp: cannot create";
+
     my $skip;
     for (@$src) {
         next if m{^#APP|^#NO|^# .*""};
@@ -51,14 +60,16 @@ for my $fname (@ARGV) {
             my $n = $2;
             s{^\s*}{#[$n]\t} if $_ = $file[$1][$n - 1] and m{\w};
             $file[1][$n - 1] = '';
-        } elsif (m{^(\.L[0-9]*):}) {    # <label>:
-            $_ = "$labdef{$1}:";
-        } elsif (my ($L) = m{\tj[bplasmogen].*(\.L[0-9]*)$}) {  # jump <label>
-            s{$L}{$labdef{$L}};
+        } elsif (m{^(\.?L[0-9A-Z]*):}) {    # <label>:
+            $_ = exists $labdef{$1} ? "$labdef{$1}:" : "";
+        } elsif (my ($L) = m{\tj[bplasmogen]*\t(\.?L[0-9A-Z]*)$}) {  # jump <label>
+            s{$L}{$labdef{$L}} if $labdef{$L};
         }
-        print $out $_ if ($_ && !m{^\t?\.} && !m<^[\t\n {};]*$>sg);
+        print $out $_ if ($_ && !m{^L[^0-9]} && !m{^\t?\.} && !m<^[\t\n {};]*$>sg);
     }
 
+    print $out "# vim: set ts=8 :\n";
     close $out;
+
     rename "$fname.tmp", $fname;
 }
