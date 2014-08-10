@@ -34,8 +34,7 @@ static void owsort(MEMREF *v, int n);
 int
 main(int argc, char **argv)
 {
-    if (argc != 2)
-        return fputs("usage: t.sort <inpfile>\n", stderr);
+    if (argc != 2) die("usage: sort_x <inpfile>");
 
     MEMBUF  inp = chomp(slurp(argv[1]));
     int	    nrecs;

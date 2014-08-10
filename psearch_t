@@ -1,6 +1,0 @@
-#!/bin/sh
-set -x
-cd ${util:-.}
-trap 'Q=$?; set +x; trap "" 0; rm -f psearch.tmp; exit $Q' 0
-./psearch_x t/10k.hosts t/10k.hosts 10019
-./psearch_mmap_x psearch.tmp t/10k.hosts
