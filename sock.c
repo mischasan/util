@@ -23,7 +23,7 @@
 // - EINTR-proofed. Since every sock/udp call resets errno,
 //      then errno==EINTR if there was a signal, even if the
 //      sock call returns a nonnegative.
-// - supports NOWAIT I/O, IPv6.
+// - supports SOCK_NOWAIT I/O, IPv6.
 //XXX: fcntl O_ASYNC for lovers of SIGIO :-|
 //XXX make the (sendfd) interface into the only interface?
 //XXX add writev-type interface.
@@ -106,6 +106,7 @@ sock_bind(IPSTR const ip, int port)
     if (addrlen < 0)
         return -1;
 
+    dyninit();
     int fd = sockit(addr.inx_family);
     if (fd < 0)
         return -1;
@@ -117,7 +118,7 @@ sock_bind(IPSTR const ip, int port)
     }
 #   endif
     //XXX support bindresvport(), i.e. ask for an arb port in 512..1023?
-    return setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &fd, sizeof fd)
+    return setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&fd, sizeof fd)
             || bind(fd, (SOADDR*)&addr, addrlen)
             || listen(fd, 5)
          ? eclose(fd) : fd;
@@ -175,6 +176,8 @@ sock_open(char const *path)
 void
 sock_close(int skt)
 {
+    // Darwin close_nocancel (libstdc++?) can throw an exception for an invalid argument.
+    if (skt < 0) return;
 #ifdef WIN32
     closesocket(skt);
 #else
@@ -185,6 +188,7 @@ sock_close(int skt)
 int
 sock_connect(const char *host, int port, int nowait)
 {
+    dyninit();
     char sport[7];
     sprintf(sport, "%hu", (uint16_t)port);
     ADRINFO *aip, hint = {
@@ -197,7 +201,7 @@ sock_connect(const char *host, int port, int nowait)
     // "ai_family" usable here because PF_INET=AF_INET, PF_INET6=AF_INET6.
     int fd = sockit(aip->ai_family), ret = -1;
     if (fd >= 0
-        && !(nowait && sock_setopt(fd, NOWAIT, 1))
+        && !(nowait && sock_setopt(fd, SOCK_NOWAIT, 1))
         && !setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &fd, sizeof fd)) {
 
         do ret = connect(fd, aip->ai_addr, aip->ai_addrlen);
@@ -226,10 +230,10 @@ sock_ready(int skt, int mode, int waitsecs)
     FD_ZERO(&erfds);
     do {
         struct timeval to = { waitsecs, 0 }, *top = waitsecs == WAIT_FOREVER ? NULL : &to;
-
         FD_SET(skt, &rwfds);
         FD_SET(skt, &erfds);
 
+        errno = 0;
         ret = mode  ? select(skt + 1, NULL, &rwfds, &erfds, top)
                     : select(skt + 1, &rwfds, NULL, &erfds, top);
     } while (ret < 0 && errno == EINTR);
@@ -299,13 +303,20 @@ sock_sendfd(int skt, int fd, char const *buf, int size)
 }
 
 static struct { int lvl, opt; } opts[SOCK_OPTS] = {
-      { SOL_SOCKET,  SO_KEEPALIVE }
+#ifdef TCP_KEEPALIVE
+      { IPPROTO_TCP, TCP_KEEPALIVE }    //XXX BSD/Darwin only
+#else
+      { SOL_SOCKET,  SO_KEEPALIVE }     //XXX In Linux, this requires more calls to set the interval.
+#endif
     , { IPPROTO_TCP, TCP_NODELAY  }
     , { F_GETFL,     O_NONBLOCK   }
     , { SOL_SOCKET,  SO_RCVBUF    }
     , { SOL_SOCKET,  SO_SNDBUF    }
     , { SOL_SOCKET,  SO_ERROR     } // sock_getopt only
     , { SOL_SOCKET,  SO_LINGER    } // placeholder
+#ifdef TCP_CORK
+    , { IPPROTO_TCP, TCP_CORK     }
+#endif
 };
 
 int
@@ -316,16 +327,16 @@ sock_getopt(int skt, SOCK_OPT opt)
 
     if (opt >= SOCK_OPTS) return errno = EINVAL, -1;
 
-    if (opt == LINGER) {
+    if (opt == SOCK_LINGER) {
         struct linger lng;
         len = sizeof lng;
-        ret = getsockopt(skt, SOL_SOCKET, SO_LINGER, &lng, &len);
+        ret = getsockopt(skt, SOL_SOCKET, SO_LINGER, (char*)&lng, &len);
         return ret ? ret : lng.l_onoff ? lng.l_linger : 0;
     } else if (opts[opt].lvl == F_GETFL) {
         return !!(fcntl(skt, F_GETFL, 0) & opts[opt].opt);
     } else {
         len = sizeof val;
-        ret = getsockopt(skt, opts[opt].lvl, opts[opt].opt, &val, &len);
+        ret = getsockopt(skt, opts[opt].lvl, opts[opt].opt, (char*)&val, &len);
         return ret ? ret : val;
     }
 }
@@ -334,9 +345,13 @@ int
 sock_setopt(int skt, SOCK_OPT opt, int val)
 {
     if (opt >= SOCK_OPTS) return errno = EINVAL, -1;
+#ifdef TCP_KEEPALIVE    // Darwin,FreeBSD
+    if (opt == SOCK_KEEPALIVE && setsockopt(skt, SOL_SOCKET, SO_KEEPALIVE, (char const*)&val, sizeof val))
+        return -1;
+#endif
 
     struct linger lng = { val > 0, val }; //XXX why winwarn?
-    return opt == LINGER
+    return opt == SOCK_LINGER
              ? setsockopt(skt, SOL_SOCKET, SO_LINGER, &lng, sizeof lng)
            : opts[opt].lvl == F_GETFL
              ? fcntl(skt, F_SETFL, BIT(fcntl(skt, F_GETFL, 0), opts[opt].opt, val))
@@ -483,10 +498,10 @@ dyninit(void)
 static int
 sockit(int domain)
 {
-    dyninit();
     int fd = socket(domain, SOCK_STREAM | sock_cloexec, 0);
-    if (fd < 0) return fd;
-#if defined(__APPLE__) && defined(SO_NOSIGPIPE)
+    if (fd < 0) return -1;
+
+#ifdef SO_NOSIGPIPE
     // If the connection breaks. the client finds out because SEND fails (RECV just waits).
     //  On Darwin, by default, writing to a broken connection throws SIGPIPE.
     int on = 1;
@@ -516,10 +531,10 @@ ininfo(INxADDR const*xp, IPSTR ip, int *pport)
 {
     if (pport) *pport = ntohs(xp->inx_port);
     if (ip) inet_ntop(AF_INET,
-                      xp->inx_family == AF_INET ? (void const*)&xp->in4.sin_addr 
+                      xp->inx_family == AF_INET ? (void const*)&xp->in4.sin_addr
                                                 : (void const*)&xp->in6.sin6_addr,
                       ip, sizeof(IPSTR));
-    }
+}
 
 static int
 ininit(INxADDR *xp, IPSTR const ip, int port)

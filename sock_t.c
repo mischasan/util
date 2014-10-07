@@ -40,14 +40,14 @@ XXX add test cases:
 #include <sys/socket.h> // SOCK_CLOEXEC
 #include "tap.h"
 
-#if !__BSD_VISIBLE
-    typedef __sighandler_t sig_t;
-#endif
+//#if !defined(__BSD_VISIBLE)
+//    typedef __sighandler_t sig_t;
+//#endif
 // This isn't right, but better than nothing.
-#ifdef __x86_64
-#   define stat  stat64
-#   define fstat fstat64
-#endif
+//#ifdef __x86_64
+//#   define stat  stat64
+//#   define fstat fstat64
+//#endif
 int     secs = 1;    // to override when debugging.
 int     pid;
 
@@ -75,32 +75,32 @@ int main(int argc, char **argv)
     int         u = sock_create(usock);
     if (!ok(u >= 0, "sock_create(%s)", usock)) die("create:");
 
-    rc = sock_getopt(s, KEEPALIVE);
-    ok(rc == 0, "getopt KEEPALIVE: %d %s", rc, errname[errno]);
+    rc = sock_getopt(s, SOCK_KEEPALIVE);
+    ok(rc == 0, "getopt SOCK_KEEPALIVE: %d %s", rc, errname[errno]);
 
-    rc = sock_setopt(s, KEEPALIVE, 1);
-    ok(rc == 0, "setopt KEEPALIVE=1: %d %s", rc, errname[errno]);
+    rc = sock_setopt(s, SOCK_KEEPALIVE, 1);
+    ok(rc == 0, "setopt SOCK_KEEPALIVE=1: %d %s", rc, errname[errno]);
 
-    int      opt = sock_getopt(s, LINGER);
-    ok(opt == 0, "getopt LINGER: %d %s", opt, errname[errno]);
+    int      opt = sock_getopt(s, SOCK_LINGER);
+    ok(opt == 0, "getopt SOCK_LINGER: %d %s", opt, errname[errno]);
 
-    rc = sock_setopt(s, LINGER, 8);
-    ok(rc == 0, "setopt LINGER=8 (secs): %d %s", rc, errname[errno]);
+    rc = sock_setopt(s, SOCK_LINGER, 8);
+    ok(rc == 0, "setopt SOCK_LINGER=8 (secs): %d %s", rc, errname[errno]);
 
-    rc = sock_getopt(s, LINGER);
-    ok(rc == 8, "getopt LINGER: %d", rc);
+    rc = sock_getopt(s, SOCK_LINGER);
+    ok(rc == 8, "getopt SOCK_LINGER: %d", rc);
 
-    rc = sock_setopt(s, LINGER, opt);
-    ok(rc == 0, "setopt LINGER=%d: %d %s", opt, rc, errname[errno]);
+    rc = sock_setopt(s, SOCK_LINGER, opt);
+    ok(rc == 0, "setopt SOCK_LINGER=%d: %d %s", opt, rc, errname[errno]);
 
-    rc = sock_setopt(s, NOWAIT, 1);
-    ok(!rc, "setopt NOWAIT=1: %d", rc);
+    rc = sock_setopt(s, SOCK_NOWAIT, 1);
+    ok(!rc, "setopt SOCK_NOWAIT=1: %d", rc);
 
-    rc = sock_getopt(s, NOWAIT);
-    ok(rc != 0, "getopt NOWAIT: %d", rc);
+    rc = sock_getopt(s, SOCK_NOWAIT);
+    ok(rc != 0, "getopt SOCK_NOWAIT: %d", rc);
 
-    rc = sock_setopt(u, NOWAIT, 1);
-    ok(rc == 0, "setopt(unix, NOWAIT=1): %d", rc);
+    rc = sock_setopt(u, SOCK_NOWAIT, 1);
+    ok(rc == 0, "setopt(unix, SOCK_NOWAIT=1): %d", rc);
 
     alarm(secs);
 
@@ -112,11 +112,11 @@ int main(int argc, char **argv)
 
     alarm(0);
 
-    sock_setopt(s, NOWAIT, 0);
-    sock_setopt(u, NOWAIT, 0);
+    sock_setopt(s, SOCK_NOWAIT, 0);
+    sock_setopt(u, SOCK_NOWAIT, 0);
 
-    rc = sock_getopt(s, NOWAIT);
-    ok(rc == 0, "getopt NOWAIT: %d", rc);
+    rc = sock_getopt(s, SOCK_NOWAIT);
+    ok(rc == 0, "getopt SOCK_NOWAIT: %d", rc);
 
     rc = sock_getopt(s, 666);
     ok(rc < 0, "getopt(bad_option) rejected: %s", errname[errno]);
@@ -228,8 +228,8 @@ int main(int argc, char **argv)
 
     alarm(secs);
     char    remhost[] = "aa.com";
-    x = sock_connect(remhost, 80, NOWAIT);
-    ok(x >= 0 && errno == EINPROGRESS, "connect(%s,80,NOWAIT) did not block: (%s)", remhost, errname[errno]);
+    x = sock_connect(remhost, 80, SOCK_NOWAIT);
+    ok(x >= 0 && errno == EINPROGRESS, "connect(%s,80,SOCK_NOWAIT) did not block: (%s)", remhost, errname[errno]);
 
     char    req[] = "GET / HTTP/1.0\r\n\r\n";
     rc = sock_send(x, req, strlen(req));

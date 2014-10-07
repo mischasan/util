@@ -647,9 +647,6 @@ char**  phkeys(char const *psfile, int *nvals);
 
 // "type" is an fopen type ("r", "w").
 FILE*   popenf(char const *type, char const *fmt, ...);
-#ifndef __BSD_VISIBLE
-
-#endif
 
 // Returns 0 if no suffix of s is also a prefix of s.
 int     presuf(MEMREF);

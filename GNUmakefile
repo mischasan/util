@@ -18,14 +18,14 @@ util_t          = bitmat_t bloom_t bndm_t concur_t intsum_t msutil_t phkeys_t sc
 util_x          = bloom_x brk_x fnv_x hash_x map_x ordhuff_x rollhash_x rsort_x sock_x sort_x ssearch_x str_x thread_x
 
 util.xbin       = $(addprefix $(util)/, fnv_x map_x ordhuff_x rsort_x)  # sort_x
-util.tbin       = $(addprefix $(util)/, bitmat_t bloom_t bndm_t map_x msutil_t phkeys_t rollhash_x rsort_x scan_t sheap_t sock_x subref_t thread_x uri_t)
+util.tbin       = $(addprefix $(util)/, bitmat_t bloom_t bndm_t map_x msutil_t phkeys_t rollhash_x rsort_x scan_t sheap_t sock_t sock_x subref_t thread_x uri_t)
 util.test       = $(util.tbin) $(addprefix $(util)/, fnv_t map_t ordhuff_t rsort_t)
 
 # fail: exe brk_x hash_x nolock sock_t sort_x ssearch_x stress str_x udp_t xmutil_t
 # fail: sh  concur_t str_t ssearch_t
 
 #---------------- PUBLIC VARS:
-all		        += util
+all		+= util
 clean 	        += $(util)/{match,dump}.tmp $(util)/words $(util)/88.tab $(util)/osho.txt
 
 # Inputs to "make install":

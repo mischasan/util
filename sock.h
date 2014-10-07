@@ -20,13 +20,14 @@ ENTER_C
 // host_ip() is needed for udp_send only.
 
 typedef enum {
-      KEEPALIVE // TCP keepalive
-    , NODELAY   // Nonbuffered TCP, for tty-like responsiveness
-    , NOWAIT    // nonblocking I/O
-    , RCVSIZE   // (size) buffer size
-    , SNDSIZE   // (size) buffer size
-    , CONERR    // connection state (0 == connected).
-    , LINGER    // (secs) bg delay to flush output after close
+      SOCK_KEEPALIVE // TCP keepalive
+    , SOCK_NODELAY   // Nonbuffered TCP, for tty-like responsiveness
+    , SOCK_NOWAIT    // nonblocking I/O
+    , SOCK_RCVSIZE   // (size) buffer size
+    , SOCK_SNDSIZE   // (size) buffer size
+    , SOCK_CONERR    // connection state (0 == connected).
+    , SOCK_LINGER    // (secs) bg delay to flush output after close
+    , SOCK_CORK      // Forced buffering
     , SOCK_OPTS
 } SOCK_OPT;
 
