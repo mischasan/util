@@ -72,6 +72,8 @@ int main(int argc, char **argv)
     int     rc, x, c, s = sock_bind(0, port);
     if (!ok(s >= 0, "sock_bind(%d)", port)) die("bind:");
 
+    diag("rcvsize=%d, sndsize=%d", sock_getopt(s, SOCK_RCVSIZE), sock_getopt(s, SOCK_SNDSIZE));
+
     int         u = sock_create(usock);
     if (!ok(u >= 0, "sock_create(%s)", usock)) die("create:");
 

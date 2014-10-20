@@ -264,8 +264,22 @@ bit_count(char const *vec, int len)
          + __builtin_ia32_vec_ext_v4si((__v4si)sum, 3);
 }
 
-#define Bytes(x) (((x) + 7) >> 3)    /* nbits -> nbytes */
+MEMREF
+fileref(char const *filename)
+{
+    MEMREF  mr = NILREF;
+    int     fd = open(filename, O_RDONLY, 0);
+    if (fd >= 0) {
+        mr.len = lseek(fd, 0L, SEEK_END);
+        mr.ptr = mmap(NULL, mr.len, PROT_READ, MAP_SHARED|MAP_NOCORE, fd, 0);
+        close(fd);
+    }
 
+    return fd < 0 || mr.len <= 0 || mr.ptr == MAP_FAILED ? NILREF : mr;
+}
+
+
+#define Bytes(x) (((x) + 7) >> 3)    /* nbits -> nbytes */
 #define BYTEDIFF(p,x) (0xFFFF ^ (_mm_movemask_epi8( _mm_cmpeq_epi8(*(__m128i const*)(p),(x)))))
 
 int
@@ -458,20 +472,6 @@ refdup(MEMREF r)
     char *cp = malloc(r.len + 1);
     cp[r.len] = 0;
     return memcpy(cp, r.ptr, r.len);
-}
-
-MEMREF
-fileref(char const *filename)
-{
-    MEMREF  mr = NILREF;
-    int     fd = open(filename, O_RDONLY, 0);
-    if (fd >= 0) {
-        mr.len = lseek(fd, 0L, SEEK_END);
-        mr.ptr = mmap(NULL, mr.len, PROT_READ, MAP_SHARED|MAP_NOCORE, fd, 0);
-        close(fd);
-    }
-
-    return fd < 0 || mr.len <= 0 || mr.ptr == MAP_FAILED ? NILREF : mr;
 }
 
 int

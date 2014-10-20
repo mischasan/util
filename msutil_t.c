@@ -26,7 +26,7 @@ int
 main(void)
 {
     char        buf[99];
-    plan_tests(30);
+    plan_tests(31);
 
     MEMREF  mr = fileref(__FILE__);
     ok(!nilref(mr), "fileref("__FILE__")");
@@ -108,8 +108,11 @@ main(void)
     char    *cs = acstr("one\2\t\377\0'two\0\0\0", 14);
     ok(!strcmp(cs,  "\"one\\x02\\t\\xFF\\x00'two\""), "acstr formats buffer as %s", cs);
 
-    uint32_t    a = revbit32(0x2357BD0F);
-    ok(a == 0xF0BDEAC4, "rev(2357BD0F) = %8X", a);
+    uint32_t    a32 = revbit32(0x2357BD0F);
+    ok(a32 == 0xF0BDEAC4, "rev(2357BD0F) = %8X", a32);
+
+    uint64_t    a64 = revbit64(0xC23456789AB10DEFULL);
+    ok(a64 == 0xF7B08D591E6A2C43ULL, "rev(C23456789AB10DEF) = %16llX", a64);
 
     YMD     ymd, exp;
     exp = (YMD) { 2004,02,29 };
