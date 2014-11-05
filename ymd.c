@@ -25,16 +25,22 @@
 #define	MAR01_1970  719543
 #define	BASE_DATE   MAR01_1900
 
-unsigned ymd2day(YMD x)
+int ymd2day(YMD x)
 {
     if (x.mm > 2)  x.mm -= 3; else x.mm += 9, --x.yyyy;
-    return  (x.yyyy*1461)/4 + (x.mm*979 + 17)/32 + x.dd - BASE_DATE;
+
+    // This is sufficient back to 1500-03-01. 1753 is the start of Gregorian Calendar.
+    int days = (x.yyyy*1461)/4 + (x.mm*979 + 17)/32 + x.dd - BASE_DATE;
+    return days 
+            + (days < -72871-3) + (days < -36465-2) + (days < 59-1) 
+            - (days >  73107+1) - (days > 109631+2); // Mar 1 (1700,1800,1900,2100,2200)
 }
 
-YMD day2ymd(unsigned nDate)
+YMD day2ymd(int nDate)
 {
     YMD		x;
-    nDate += BASE_DATE;
+    nDate -= -BASE_DATE
+            + (nDate < -72871 ? 3 : nDate < -36465 ? 2 : nDate < 59 ? 1 : nDate > 109631 ? -2 : nDate > 73107 ? -1 : 0);
 
     x.yyyy = (nDate * 4  - 1)/ 1461;
     nDate -= (x.yyyy * 1461)/ 4;

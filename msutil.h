@@ -87,6 +87,7 @@
 //  belch(fname,ref)        - Save memref to file. e.g. belch("/tmp/foo", strref(s))
 //  bit_count               - count bits
 //  bitmat_trans            - transpose a bit matrix
+//  bswap_{16,32,64}        - reverse bytes
 //  bsrl(long)              - execute the bsrl op on a NON-ZERO VALUE, returning 0..31
 //  bitwid(x)               - min # of bits required to represent (x); ceil(log2(N-1))
 //  bndmem(t,tlen,p,plen)   - BNDM search for patt in text.
@@ -180,7 +181,6 @@ ENTER_C
 #   error need to define FPTR
 #endif
 
-// uintptr_t is not unsigned int on stinky
 // This does not work on gcc 4.1 (64)
 #if __LONG_LONG_MAX__ == __LONG_MAX__
 #   define FSIZE    "l"
@@ -207,27 +207,6 @@ ENTER_C
 #define FOFF FPTR
 
 //XXX todo: add FTIME for time_t.
-
-#if defined(__FreeBSD__)
-#   include <sys/endian.h>  // byteswap
-#   define  bswap_16(x) bswap16(x)
-#   define  bswap_32(x) bswap32(x)
-#   define regargs
-#elif defined(__linux__)
-#   include <byteswap.h>
-#   include <endian.h>      // __BYTE_ORDER
-#   define regargs __attribute__((fastcall))
-//#elif defined(__APPLE_)
-#else
-#   include <machine/endian.h>      // __BYTE_ORDER
-static inline unsigned short bswap_16(unsigned short x)         { return (x>>8) | (x<<8); }
-static inline unsigned int bswap_32(unsigned int x)             { return (bswap_16(x&0xffff)<<16) | (bswap_16(x>>16)); }
-static inline unsigned long long bswap_64(unsigned long long x) { return (((unsigned long long)bswap_32(x&0xffffffffULL))<<32) | (bswap_32(x>>32)); }
-#   define regargs
-
-//#else
-//#   error Find out how to define bswap and endian.h for this platform!
-#endif
 
 // This is the gcc way
 #define UNALIGNED __attribute__((align(1))
@@ -269,6 +248,33 @@ static inline TYPE TYPE##_max(TYPE a, TYPE b) {return a > b ? a : b; }
 #define MAKE_LINK_FUNC(TYPE,FIELD) \
 static inline TYPE*FIELD##_##TYPE(__typeof(((TYPE*)0)->FIELD) *lp) \
 { return (TYPE*)((uint8_t*)lp - (uint8_t*)&((TYPE*)0)->FIELD); }
+#endif
+
+#if __APPLE__
+#   include <machine/endian.h>
+    static inline uint16_t bswap_16(uint16_t x) { asm("bswap %0" : "=r"(x) : "0"(x)); return x; }
+    static inline uint32_t bswap_32(uint32_t x) { asm("bswap %0" : "=r"(x) : "0"(x)); return x; }
+    static inline uint64_t bswap_64(uint64_t x) { asm("bswap %0" : "=r"(x) : "0"(x)); return x; }
+#elif defined(__FreeBSD__)
+#   include <sys/endian.h>  // byteswap
+#   define  bswap_16(x) bswap16(x)
+#   define  bswap_32(x) bswap32(x)
+#   define  bswap_64(x) bswap64(x)
+#   define
+#elif defined(__linux__)
+#   include <endian.h>      // __BYTE_ORDER
+#   include <byteswap.h>
+#elif defined(_WIN32)
+#   define  bswap_16(x) _byteswap_ushort(x)
+#   define  bswap_32(x) _byteswap_ulong(x)
+#   define  bswap_64(x) _byteswap_uint64(x)
+#else
+    // WHAT ABOUT ENDIAN?
+static inline unsigned short bswap_16(unsigned short x)         { return (x>>8) | (x<<8); }
+static inline unsigned int bswap_32(unsigned int x)             { return (bswap_16(x&0xffff)<<16) | (bswap_16(x>>16)); }
+static inline unsigned long long bswap_64(unsigned long long x) { return (((unsigned long long)bswap_32(x&0xffffffffULL))<<32) | (bswap_32(x>>32)); }
+//#else
+//#   error Find out how to define bswap and endian.h for this platform!
 #endif
 //--------------|-------|-------|-------------------------------
 // MEMBUF's created from C strings allocate the trailing \0
@@ -328,10 +334,10 @@ BITMAT *bitmat(int nrows, int ncols);
 void    bitmat_destroy(BITMAT*);
 void    bitmat_clear(BITMAT*);
 BITMAT *bitmat_copy(BITMAT const*);
-int     bitmat_rows(BITMAT const*) regargs;
-int     bitmat_cols(BITMAT const*) regargs;
-int     bitmat_get(BITMAT const*, int row, int col) regargs;
-void    bitmat_set(BITMAT*, int row, int col, int val) regargs;
+int     bitmat_rows(BITMAT const*);
+int     bitmat_cols(BITMAT const*);
+int     bitmat_get(BITMAT const*, int row, int col);
+void    bitmat_set(BITMAT*, int row, int col, int val);
 MEMREF  bitmat_ref(BITMAT const*);
 BITMAT *bitmat_trans(BITMAT const*);
 //--------------|-----------------------------------------------
@@ -702,8 +708,8 @@ static inline void usage(char const *str)
 }
 
 typedef struct { unsigned yyyy, mm, dd; } YMD;
-unsigned ymd2day(YMD);
-YMD	 day2ymd(unsigned nDate);
+int     ymd2day(YMD);
+YMD	 day2ymd(int nDate);
 
 extern char const *eainame[];   // ret = getaddrinfo(...); puts(eainame[-ret]);
 extern int  const neainames;

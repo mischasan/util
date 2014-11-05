@@ -118,7 +118,7 @@ source          = $(filter-out %.d, $(shell $(MAKE) -nps all test cover profile 
 gccdefs         :;@$(CC) $(CPPFLAGS) -E -dM - </dev/null | cut -c8- | sort
 tags            : all; ctags $(filter %.c %.cpp %.h, $(source))
 # sh : invoke a shell within the makefile's env:
-sh   		:; PS1='$(PS1) [make] ' $(SHELL)
+sh   		:;@PS1='$(PS1) [make] ' $(SHELL)
 # "make SomeVar." prints $(SomeVar)
 %.              :;@echo '$($*)'
 

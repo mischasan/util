@@ -1,26 +1,47 @@
-#!/bin/sh
+#!/bin/bash
 # mkpg: configure/compile/install a version of postgres.
 # NOTES
-#   Postgres compiles its configured "install" directory 
-#   (aka --prefix) into its binaries. 
+#   Postgres compiles its configured "install" directory
+#   (aka --prefix) into its binaries.
 #-------------------------------------------------------------------
-Do()  { echo >&2 "+ $*"; $EVAL "$*"; }
+Do()    { echo >&2 "$*"; $EVAL "$*"; }
+Die()   { echo >&2 "mkpg: $*"; exit 1; }
+Make()  { Do $MAKE $* | egrep -v '^gmake|^ (Entering|Leaving|Nothing|is up to) ' >&2 ||:
+          Q=${PIPESTATUS[0]}; [ $Q = 0 ] || Die "'$MAKE $*' failed: exit status $Q"
+        }
 
-SRCBASE=${SRCBASE:-$HOME/var}
+# Also: ftp5.ca.postgresql.org/mirrors/postgresql/source
+PGMIRROR=${PGMIRROR:-http://ftp.postgresql.org/pub/source}
+DATADIR=${DATADIR:-$HOME/pgdata}
 RUNBASE=${RUNBASE:-$HOME/pgsql}
+SRCBASE=${SRCBASE:-$HOME/var}
 
-if [ $# = 0 ]; then
+if [ "$1" = -n ]; then EVAL=:; shift; else EVAL=eval; fi
+VER=$1; shift; CFGOPTS="$*"
+
+case $VER in
+[789].*.*) ;;
+[789].*) Die "version must be a full three-part id; e.g. mkpg 9.3.5" ;;
+*)
     versions=$(ls -d $SRCBASE/postgresql-[7-9]*[.0-9][0-9] $RUNBASE/[7-9]*[0-9] \
                 | sed 's|.*/[postgresql-]*|	|' | sort -u)
-    confiles=$(cd $SRCBASE; ls postgresql.conf-[789].* | sed 's/^/	/')
+    confiles=$(cd $SRCBASE; ls postgresql.conf-[789].* 2>/dev/null | sed 's/^/	/')
+
     cat >&2 <<__CAT__
-USAGE: mkpg [-n] <version> - build and install postgres version.
+USAGE: mkpg [-n] <version> [config-opts] - build and install postgres version.
+
+OPTIONS
+    -n      show commands that will be executed, without executing them.
+
+ARGUMENTS
+    version         must be a full a.b.c version number
+    config-opts     Extra options for postgres "configure"; e.g. --with-openssl
 
 "mkpg" will ...
-	source from:	ftp*.ca.postgresql.org
-	build in:	\$SRCBASE/postgresql-<version>/
-	install into:	\$RUNBASE/<version>/
-	symlinked to:  	\$RUNBASE/curr
+    pull source from:  \$PGMIRROR/v<version>
+    build in:          \$SRCBASE/postgresql-<version>/
+    install into:      \$RUNBASE/<version>/
+    symlink that to:   \$RUNBASE/curr
 
 SRCBASE currently contains versions:
 $versions
@@ -28,86 +49,99 @@ $versions
 $confiles
 
 ENVIRONMENT
-    SRCBASE=$SRCBASE
-    RUNBASE=$RUNBASE
-    MIRRORS='$MIRRORS'
- 
+    PGMIRROR    $PGMIRROR
+    SRCBASE     $SRCBASE
+    RUNBASE     $RUNBASE
+    DATADIR     $DATADIR
+
 SEE ALSO
     pg      - manage a pg server (create/destroy/start/stop/status ...)
     pgconf  - manage pg conf settings, in both db and postgresql.conf
 __CAT__
+
     exit 2
-fi
+esac
 
-if [ "$1" = -n ]; then EVAL=:; shift; else EVAL=eval; fi
+set -e
 
-VER=$1
+test -d $SRCBASE || Do mkdir -p $SRCBASE
+test -d $RUNBASE || Do mkdir -p $RUNBASE
+test -d $DATADIR || Do mkdir -p $DATADIR
+
 SRCDIR=$SRCBASE/postgresql-$VER
 RUNDIR=$RUNBASE/$VER
 CURRUN=$RUNBASE/curr
 
-case $VER in
-7.*) opt_config=                runlib=$RUNDIR/lib/ ;;
-[89].*) opt_config=--with-openssl  runlib= ;;
-esac
-
-if which gmake >&-; then MAKE=gmake; else MAKE=make; fi
-set -e
-
-#MIRROR=ftp://www.postgresql.org/ftp/source/v
-#MIRROR=ftp://ftp4.ca.postgresql.org/pub/postgresql/source/v
-#MIRROR='ftp4.ca.postgresql.org/pub/postgresql ftp-archives.postgresql.org/pub'
-#MIRROR=http://wwwmaster.postgresql.org/redir/333/f/source/
-#MIRROR=http://wwwmaster.postgresql.org/download/mirrors-ftp/source/v
-MIRROR=ftp5.ca.postgresql.org/mirrors/postgresql/v
-MIRROR=ftp5.ca.postgresql.org/mirrors/postgresql/source/v
-MIRROR=http://ftp.postgresql.org/pub/source/v
 # plpgsql.so is the last file installed by "gmake install":
-if [ ! -s $RUNDIR/lib/plpgsql.so ]; then
+
+if [ -s $RUNDIR/lib/plpgsql.so ]
+then echo >&2 "# Skipping rebuild of postgres. To force rebuild:
+    rm -f $RUNDIR/lib/plpgsql.so"
+else
     if [ ! -d $SRCBASE/postgresql-$VER ]; then
+
+        #---- Retrieve source tarball:
         Do cd $SRCBASE
         [ -f postgresql-$VER.tar.bz2 ] \
-	|| Do wget -nv --tries=1 $MIRROR$VER/postgresql-$VER.tar.bz2\
-	|| ! echo >&2 'mkpg: unable to retrieve source tarball from postgresql.org ftp site'
+	|| Do wget -nv --tries=1 $PGMIRROR/v$VER/postgresql-$VER.tar.bz2\
+	|| Die 'unable to get $VER source tarball from postgresql.org ftp site'
 
         Do tar -xjf postgresql-$VER.tar.bz2
     fi
 
+    #---- Configure for build from source:
     Do cd $SRCDIR
-    if [ ! -s $SRCDIR/GNUmakefile ]; then
-        Do ./configure --prefix=$RUNDIR --quiet --disable-rpath --without-readline --without-zlib $opt_config
-        #Do ./configure --prefix=$RUNDIR --quiet --disable-rpath --with-readline $opt_config
-    fi
+    [ -z "$DESTDIR" ] || Do unset DESTDIR
+    Do ./configure --prefix=$RUNDIR --quiet --disable-rpath --with-openssl --without-readline --without-zlib $CFGOPTS
 
-    #XXX egrep masks gmake exit status :-(
-    test -z "$DESTDIR" || Do unset DESTDIR
-    Do $MAKE | egrep -v '^gmake|^ (Entering|Leaving|Nothing|is up to) ' >&2 ||:
-    Do $MAKE install | egrep -v '^gmake|^ (Entering|Leaving|Nothing|is up to) ' >&2 ||:
+    if which gmake >&-; then MAKE=gmake; else MAKE=make; fi
+    Make clean all install
+    Make -C contrib/sslinfo all install
 fi
 
-# Ensure symlink from $RUNDIR to $CURRUN
-Do "rm -rf $CURRUN"
-Do "ln -fs $RUNDIR $CURRUN"
+Do rm -f  $CURRUN
+Do ln -fs $RUNDIR  $CURRUN
+Do ln -fs $DATADIR/$VER $CURRUN/pgdata   # Possibly xdev
 
-OLD=$(which postgres)
-case "$OLD" in 
-$CURRUN/bin/postgres|$RUNDIR/bin/postgres) ;;
-*/postgres)
-    echo "#NOTE: Put $CURRUN/bin ahead of ${OLD%/postgres} in PATH" ;;
-*)  echo "Add $CURRUN/bin to PATH"
-esac >&2
+#---- Advise the user if they should set up (one-time) some env:
+SHOULD=
 
-case :$LD_LIBRARY_PATH: in *:$CURRUN/lib:*) ;;
-*) echo "Add $CURRUN/lib to LD_LIBRARY_PATH";
-esac >&2
+[ .$PGDATA = .$DATADIR/${VER%%.*} ] || SHOULD="$SHOULD  PGDATA=$DATADIR/${VER%%.*}"
 
-# Copy the best PMX postgresql.conf match to $VER, into ~/pg$VER
-cd $SRCBASE
-pgconf=$(ls postgresql.conf-$VER* 2>&- | head -1)
-test -f "$pgconf" || pgconf=$(ls -r postgresql.conf-*| awk '"postgresql.conf-'$VER'" ~ $1' | head -1)
-if [ ! -f "$pgconf" ]
-then 	echo >&2 "No postgresql.conf-<version> available to be $RUNDIR/share/postgresql.conf" ||:
-elif ! cmp -s $pgconf $RUNDIR/share/postgresql.conf
-then 	Do ln -fs $SRCBASE/$pgconf $RUNDIR/share/postgresql.conf
+[ .`which postgres` = .$CURRUN/bin/postgres ] || SHOULD="$SHOULD  PATH=$CURRUN/bin:\$PATH"
+
+case :$LD_LIBRARY_PATH: in *:$CURBASE/lib:*) ;;
+*) SHOULD="$SHOULD  LD_LIBRARY_PATH=$CURRUN/lib:\$LD_LIBRARY_PATH"
+esac
+
+#---- If $SRCBASE has a model postgresql.conf-* file, copy that to $VER/share/, where "pg init" can find it.
+if [ "$confiles" ]; then
+    cd $SRCBASE
+    pgconf=$(ls postgresql.conf-$VER* 2>&- | head -1)
+    [ -f "$pgconf" ] || pgconf=$(ls -r postgresql.conf-*| awk '"postgresql.conf-'$VER'" ~ $1' | head -1)
+    [ -f "$pgconf" ] || pgconf=$SRCDIR/src/backend/utils/misc/postgresql.conf.sample
+    cmp -s $pgconf $RUNDIR/share/postgresql.conf || Do ln -fs $SRCBASE/$pgconf $RUNDIR/share/postgresql.conf
 fi
-#REVISIT: do the same for pg_hba.conf
+ 
+#---- Whether or not po*nf has ssl=on and listen=*, and whether or 
+PGDATA=$DATADIR/${VER%%.*}
+if [ ! -f $PGDATA/server.key -a "`which openssl`" ]; then
+    Do cd $PGDATA
+    egrep -H '^#* *(ssl|listen) *=' postgresql.conf
+    egrep -H '^#* *hostssl' pg_hba.conf
+    Do openssl req -new -text -out server.req
+    Do openssl rsa -in privkey.pem -out server.key
+    Do openssl req -x509 -in server.req -text -key server.key -out server.crt
+    Do rm -f privkey.pem server.req
+    Do chmod go-rwx server.key
+fi
+
+if [ $EVAL = eval ]; then
+    echo >&2 "# Critical paths:"
+    ls -Ldl $PGDATA $PGDATA/postgresql.conf $PGDATA/*.{crt,key,req}
+fi
+
+[ ! "$SHOULD" ] || echo >&2 "# You should:
+export$SHOULD"
+
+echo
