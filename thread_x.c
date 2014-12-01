@@ -43,11 +43,11 @@ int main(void)
     TRY(flag_watch(flag, 0.5));
     TRY(sleep(1));
 
-    thread_wait(thrd);
+    thread_result(thrd);
 
     thrd = thread_start(sleeping, flag);
     TRY(thread_cancel(thrd));
-    TRY(thread_wait(thrd));
+    TRY(thread_result(thrd));
 
     flag_destroy(flag);
 

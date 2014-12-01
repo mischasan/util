@@ -65,9 +65,10 @@
 //      cache_set(cache, key, val)
 //
 // THREAD: pthread wrapper.
+//      thread_spawn(func, arg)         Fire-and-forget a thread.
 //      thread_start(func, arg)         Create and start a thread.
-//      thread_cancel(thread)
-//      thread_wait(thread)             Wait for a thread to exit.
+//      thread_cancel(thread)           NOT SUPPORTED IN WIN32 (TerminateThread is evil).
+//      thread_result(thread)           Wait for a started thread to exit.
 //
 // FLAG: pthread_cond wrapper. Behaves like signals.
 //      flag_create()
@@ -469,9 +470,10 @@ typedef struct thread_s THREAD;
 typedef struct flag_s   FLAG;
 typedef void *          THREAD_FN(void*);
 
+void    thread_spawn(THREAD_FN, void*arg);
 THREAD* thread_start(THREAD_FN, void*arg);
 int     thread_cancel(THREAD *pth);
-void*   thread_wait(THREAD*);
+void*   thread_result(THREAD*);
 
 FLAG*   flag_create(void);
 void    flag_destroy(FLAG*);

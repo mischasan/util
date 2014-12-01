@@ -27,12 +27,24 @@
 #ifndef __TAP_H__
 #define __TAP_H__
 
+#ifndef ENTER_C
+#ifdef __cplusplus
+#   define ENTER_C extern "C" {
+#   define LEAVE_C   };
+#else
+#   define ENTER_C
+#   define LEAVE_C
+#endif//__cplusplus
+#endif//ENTER_C
+
 #include <stddef.h>
 #include <stdio.h>
 
 #if !defined(_WIN32) || defined(MAKE_MINGW)
 #   include <stdint.h>    /* For uintptr_t, which Windows puts in <stddef.h>; Windows doesn't have <stdint.h> */
 #endif
+
+ENTER_C
 
 /**
  * plan_tests - announce the number of tests you plan to run
@@ -58,23 +70,27 @@ typedef unsigned __int64 uint64_t;
 # error "Needs gcc or C99 compiler for variadic macros."
 #else
 
+typedef int (TAP_CMP_FN)(const void *, const void *);
+typedef const char*(TAP_STR_FN)(const void *);
+
 /* Compare integers up to 64-bits */
-#define is(g, e, ...)                  _gen_result(1, (uint64_t)(g), (uint64_t)(e), (void *)0, (void *)0, \
+#define NUL 0
+#define is(g, e, ...)                  _gen_result(1, (uint64_t)(g), (uint64_t)(e), NUL, NUL, \
                                                    __func__, __FILE__, __LINE__, __VA_ARGS__)
 
-#define is_ptr(g, e, ...)              _gen_result(1, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), (void *)0, (void *)0, \
+#define is_ptr(g, e, ...)              _gen_result(1, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), NUL, NUL, \
                                                    __func__, __FILE__, __LINE__, __VA_ARGS__)
 
-#define is_eq(g, e, ...)               _gen_result(2, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), (void *)0, (void *)0, \
+#define is_eq(g, e, ...)               _gen_result(2, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), NUL, NUL, \
                                                    __func__, __FILE__, __LINE__, __VA_ARGS__)
 
 #define is_cmp(g, e, cmp, to_str, ...) _gen_result(3, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), (cmp), (to_str), \
                                                    __func__, __FILE__, __LINE__, __VA_ARGS__)
 
-#define is_strncmp(g, e, len, ...)     _gen_result(4, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), (void *)(uintptr_t)(len), (void *)0, \
+#define is_strncmp(g, e, len, ...)     _gen_result(4, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), (void *)(uintptr_t)(len), NUL, \
                                                    __func__, __FILE__, __LINE__, __VA_ARGS__)
 
-#define is_strstr(g, e, ...)           _gen_result(5, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), (void *)0, (void *)0, \
+#define is_strstr(g, e, ...)           _gen_result(5, (uint64_t)(uintptr_t)(g), (uint64_t)(uintptr_t)(e), NUL, NUL, \
                                                    __func__, __FILE__, __LINE__, __VA_ARGS__)
 
 /**
@@ -89,9 +105,9 @@ typedef unsigned __int64 uint64_t;
  *	ok1(init_subsystem() == 1);
  */
 # define ok1(e) ((e) ?                                                                          \
-                 _gen_result(0, (uint64_t)1, (uint64_t)0, (void *)0, (void *)0,         \
+                 _gen_result(0, (uint64_t)1, (uint64_t)0, (TAP_CMP_FN*)0, (TAP_STR_FN*)0,         \
                              __func__, __FILE__, __LINE__, "%s", #e) :                          \
-                 _gen_result(0, (uint64_t)0, (uint64_t)0, (void *)0, (void *)0,         \
+                 _gen_result(0, (uint64_t)0, (uint64_t)0, (TAP_CMP_FN*)0, (TAP_STR_FN*)0,         \
                              __func__, __FILE__, __LINE__, "%s", #e))
 
 /**
@@ -108,9 +124,9 @@ typedef unsigned __int64 uint64_t;
  *	ok(init_subsystem() == 0, "Second initialization should fail");
  */
 # define ok(e, ...) ((e) ?                                                                      \
-		     _gen_result(0, (uint64_t)1, (uint64_t)0, (void *)0, (void *)0,     \
+		     _gen_result(0, (uint64_t)1, (uint64_t)0, (TAP_CMP_FN*)0, (TAP_STR_FN*)0,     \
                                  __func__, __FILE__, __LINE__, __VA_ARGS__) :                   \
-		     _gen_result(0, (uint64_t)0, (uint64_t)0, (void *)0, (void *)0,     \
+		     _gen_result(0, (uint64_t)0, (uint64_t)0, (TAP_CMP_FN*)0, (TAP_STR_FN*)0,     \
                                  __func__, __FILE__, __LINE__, __VA_ARGS__))
 
 /**
@@ -161,9 +177,9 @@ typedef unsigned __int64 uint64_t;
 #endif
 
 unsigned int _gen_result(int type, uint64_t got, uint64_t exp,
-            int (*cmp)(const void *, const void *),
-            const char * (*to_str)(const void *), const char *func,
-            const char *file, unsigned int line, const char *name, ...) PRINTF_ATTRIBUTE(9, 10);
+            TAP_CMP_FN*, TAP_STR_FN*,
+            const char *func, const char *file, unsigned int line,
+            const char *name, ...) PRINTF_ATTRIBUTE(9, 10);
 
 /**
  * diag - print a diagnostic message (use instead of printf/fprintf)
@@ -282,20 +298,21 @@ void plan_no_plan(void);
 void plan_skip_all(const char *reason);
 
 /* New in libtap2 - See the man page for help */
-
-#define TAP_FLAG_ON_FAILURE_EXIT 0x00000001
-#define TAP_FLAG_DEBUG           0x00000002
-
-typedef struct tap_ev       * tap_ev;
-typedef struct tap_ev_queue * tap_ev_queue;
-
-extern const char TAP_EV_NO_EVENT[];
-
 void         tap_init(                FILE * out);
 void         tap_plan(                unsigned tests, unsigned flags, FILE * output);
 const char * tap_get_test_case_name(  void);
 void         tap_set_test_case_name(  const char * name);
 void *       tap_dup(                 const void * mem, size_t size);
+
+#define TAP_FLAG_ON_FAILURE_EXIT 0x00000001
+#define TAP_FLAG_DEBUG           0x00000002
+
+#ifdef MSS
+typedef struct tap_ev       * tap_ev;
+typedef struct tap_ev_queue * tap_ev_queue;
+
+extern const char TAP_EV_NO_EVENT[];
+
 
 unsigned     tap_ev_arg_count(        tap_ev ev);
 void       * tap_ev_arg(              tap_ev ev, const char * name);
@@ -318,6 +335,8 @@ tap_ev       tap_ev_queue_shift(      tap_ev_queue queue);
 tap_ev       tap_ev_queue_shift_next( tap_ev_queue queue, const char * identifier);
 
 #define tap_test_case_name(name) tap_set_test_case_name(name)
+#endif//MSS
 
 #endif /* C99 or gcc */
+LEAVE_C
 #endif /* __TAP_H__  */

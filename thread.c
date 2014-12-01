@@ -1,27 +1,85 @@
-// Copyright (C) 2009-2013 Mischa Sandberg <mischasan@gmail.com>
-//
-// This program is free software; you can redistribute it and/or modify
-// it under the terms of the GNU General Public License Version 2 as
-// published by the Free Software Foundation.  You may not use, modify or
-// distribute this program under any other version of the GNU General
-// Public License.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software
-// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
-//
-// IF YOU ARE UNABLE TO WORK WITH GPL2, CONTACT ME.
-//-------------------------------------------------------------------
+#include "msutil.h"
+
+ENTER_C
+
+#ifdef WIN32
+#include <process.h>    // _beginthreadex ...
+
+struct flag_s { HANDLE h; };
+
+FLAG*
+flag_create(void)
+{
+    return NULL;
+}
+
+void
+flag_destroy(FLAG *flag)
+{
+    (void)flag;
+}
+
+{
+void
+flag_any(FLAG *flag)
+{
+    (void)flag;
+}
+
+void
+flag_all(FLAG *flag)
+{
+    (void)flag;
+}
+
+int
+flag_watch(FLAG *flag, double waitsecs)
+{
+    (void)flag, (void)waitsecs;
+    return 0;
+}
+
+//- - - - - - - |- - - - - - - -|- - - - - - - -|- - - - - - - - - -
+struct thread_s { HANDLE hthread; unsigned threadID; };
+typedef unsigned (__stdcall*WIN_THREAD_FN)(void*));
+
+void
+thread_spawn(THREAD_FN func, void*arg)
+{
+    // Dopey... how does pthread32 do it?
+    (void)thread_start(func, arg);
+}
+
+THREAD*
+thread_start(THREAD_FN func, void*arg)
+{
+    THREAD t = { (HANDLE)_beginthreadex(NULL, 0L, (WIN_THREAD_FN*)func, arg, 0, &t.threadID);
+    return memcpy(malloc(sizeof t), &t, sizeof t);
+}
+
+int
+thread_cancel(THREAD *pth)
+{
+    // How does pthread32 do it?
+    return 0;
+}
+
+void*
+thread_result(THREAD *pth)
+{
+    if (!pth) return NULL;
+    WaitForSingleObject(pth->hthread, INFINITE);
+    uint thret = GetExitCodeThread(pth->hthread, &thret) : 0;
+    CloseHandle(pth->hthread);
+    free(pth);
+    return (void*)thret; //XXX dubious...
+}
+
+#else   //------------------ UNIX/pthreads
 
 #include <errno.h>
-#include <math.h>       // floor
+#include <math.h>   // floor
 #include <pthread.h>
-#include "msutil.h"
 
 struct flag_s { pthread_cond_t  cond; pthread_mutex_t lock; };
 
@@ -70,8 +128,19 @@ flag_watch(FLAG *flag, double waitsecs)
 
     return -!!errno;
 }
-//--------------|---------------------------------------------
+
+//- - - - - - - |- - - - - - - -|- - - - - - - -|- - - - - - - - - -
 struct thread_s { pthread_t tid; };
+
+void
+thread_spawn(THREAD_FN func, void*arg)
+{
+    THREAD ret;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&ret.tid, &attr, func, arg);
+}
 
 THREAD*
 thread_start(THREAD_FN func, void*arg)
@@ -79,7 +148,6 @@ thread_start(THREAD_FN func, void*arg)
     THREAD ret;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     errno = pthread_create(&ret.tid, &attr, func, arg);
     return errno ? NULL : memcpy(malloc(sizeof ret), &ret, sizeof ret);
 }
@@ -93,12 +161,14 @@ thread_cancel(THREAD *pth)
     return -!!(errno = pthread_cancel(pth->tid));
 }
 
-//XXX thread_wait cannot catch detached threads!
 void*
-thread_wait(THREAD *pth)
+thread_result(THREAD *pth)
 {
     void *ret = NULL;
     errno = pthread_join(pth->tid, &ret); // EDEADLK...
     free(pth);
     return ret;
 }
+#endif//WIN32
+
+LEAVE_C

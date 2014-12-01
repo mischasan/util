@@ -14,10 +14,13 @@ util.c          = $(addprefix $(util)/, acstr.c bitmat.c bloom.c bndmem.c cessuh
 util.bin        = $(addprefix $(util)/, concurs gai realpath)
 util.scripts    = $(addprefix $(util)/, amok covsum deas envy hist ifdent mkpg pg pgconf pglist pgps proj.fns pspace rules statpg statps tab)
 
-util_t          = bitmat_t bloom_t bndm_t concur_t intsum_t msutil_t phkeys_t scan_t search_t sheap_t sock_t ssesort_t subref_t tran_t ucsutf_t udp_t uri_t xmutil_t
+#util_t          = bitmat_t bloom_t bndm_t concur_t intsum_t msutil_t phkeys_t scan_t search_t sheap_t sock_t ssesort_t subref_t tran_t ucsutf_t udp_t uri_t xmutil_t
+util_t          = bitmat_t bloom_t bndm_t concur_t intsum_t msutil_t phkeys_t scan_t search_t sheap_t sock_t ssesort_t subref_t tran_t udp_t uri_t xmutil_t
 util_x          = bloom_x brk_x fnv_x hash_x map_x ordhuff_x rollhash_x rsort_x sock_x sort_x ssearch_x str_x thread_x
 
+#util.xbin       = $(addprefix $(util)/, fnv_x map_x ordhuff_x rsort_x)  # sort_x
 util.xbin       = $(addprefix $(util)/, fnv_x map_x ordhuff_x rsort_x)  # sort_x
+#util.tbin       = $(addprefix $(util)/, bitmat_t bloom_t bndm_t map_x msutil_t phkeys_t rollhash_x rsort_x scan_t sheap_t sock_t sock_x subref_t thread_x ucsutf_t uri_t)
 util.tbin       = $(addprefix $(util)/, bitmat_t bloom_t bndm_t map_x msutil_t phkeys_t rollhash_x rsort_x scan_t sheap_t sock_t sock_x subref_t thread_x uri_t)
 util.test       = $(util.tbin) $(addprefix $(util)/, fnv_t map_t ordhuff_t rsort_t)
 
@@ -27,6 +30,8 @@ util.test       = $(util.tbin) $(addprefix $(util)/, fnv_t map_t ordhuff_t rsort
 #---------------- PUBLIC VARS:
 all		+= util
 clean 	        += $(util)/{match,dump}.tmp $(util)/words $(util)/88.tab $(util)/osho.txt
+# source: files that should be sent with the build package but are not (yet) in any dependency.
+source          += $(util)/tap.[ch]
 
 # Inputs to "make install":
 install.bin     += $(util.bin) $(util.scripts)
@@ -34,12 +39,10 @@ install.lib     += $(util)/libmsutil.a $(util)/libtap.a
 install.include += $(addprefix $(util)/, bloom.h concur.h msutil.h rsort.h sha1.h sha256.h sheap.h sock.h ssearch.h tap.h ubloom.h xmutil.h)
 
 #---------------- PUBLIC TARGETS (see rules.mk):
-all             : $(util.bin) $(util.lib) $(util.tbin)
+all             : $(util.bin) $(util.lib) $(util.tbin) $(util.xbin)
 test            : $(util.test:=.pass)
 
 #---------------- PRIVATE RULES:
-util.all        : $(util.bin) $(util.lib) $(util.tbin) $(util.xbin)
-
 $(util.bin)             : $(util)/libmsutil.a
 $(util.tbin)            : $(util)/libmsutil.a $(util)/libtap.a
 $(util.xbin)            : $(util)/libmsutil.a
@@ -48,6 +51,8 @@ $(util.test:=.pass)     : PATH := $(util):$(PATH)
 $(util)/libmsutil.a     : $(util.c:c=o)
 $(util)/libtap.a        : $(util)/tap.o
 $(util)/nolock          : LDLIBS += -pthread
+$(util)/xmem            : LDLIBS += -lstdc++
+
 $(util)/thread_x        : LDLIBS += -pthread
 $(util.test:=.pass)     : PATH := $(util):$(PATH)
 $(util)/mac.o           : CFLAGS += -fPIC
