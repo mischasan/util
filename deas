@@ -23,7 +23,7 @@ for my $fname (@ARGV) {
         if (m{^(\.?L[0-9A-Z]*):}) {     # ascending numbers for labels
             push @labdef,$1;
             $labdef{$1} = 1;
-        } elsif (m{\tj[bplasmogen]\t(\.?L[0-9A-Z]*)$}) { # jump => interesting label
+        } elsif (m{\tj[bplasmogen]*\t(\.?L[0-9A-Z]*)$}) { # jump => interesting label
             $labuse{$1} = ($labuse{$1} || '') . ($labdef{$1} ? 'B' : 'F');
         } elsif (!m{ "/usr/|<built-in>} && m{\.file (\d+) "([^"]*)"}) {   # source file declaration
             # gcc 4.3.4 may emit "file N <built-in>"
