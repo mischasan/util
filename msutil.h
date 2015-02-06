@@ -25,7 +25,7 @@
 //
 // VEC: dynamic vectors, akin to STL vectors.
 //      vec_new(int width, DTOR *dtor, void *context)
-//            vec_free/vec_resize may call dtor(&elem, context) per element.
+//      vec_free/vec_resize may call dtor(&elem, context) per element.
 //      vec_free(VEC*)                Destroy vec
 //      vec_width(VEC*)               element size
 //      vec_count(VEC*)               element count
@@ -497,6 +497,7 @@ static inline int  vec_count(VEC* v) { return v ? v->count : 0; }
 static inline int  vec_width(VEC* v) { return v ? v->width : 0; }
 
 VEC* vec_new(int width, DTOR *dtor, void *context);
+#undef vec_free     // AIX 6.1 GCC 4.2.4 stdlib.h
 void vec_free(VEC*);
 void vec_allow(VEC*, int limit);
 void vec_resize(VEC*, int limit);
@@ -624,7 +625,7 @@ static inline int fls(int x) { if (!x) return 0; asm("bsrl %0,%0":"=a"(x):"a"(x)
 #endif
 
 FILE*   fopenf(char const *mode, char const *fmt, ...);
-#if defined(__linux__)
+#if defined(linux) || defined(_HPUX_SOURCE) || defined(_AIX)
 char const *getprogname(void);  // BSD-equivalent
 #endif
 void    hexdump(FILE *fp, void const*_buf, int len);

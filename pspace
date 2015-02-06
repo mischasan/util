@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Data::Dump	qw(dump);
+use Data::Dumper;
 use Date::Parse	qw(str2time);
 use Getopt::Std;
 use List::Util	qw(sum);
@@ -67,7 +67,7 @@ my %cmd; #  command =>
 #   {ended}   time at which active went to 0.
 
 $SIG{HUP}  = sub { dump_stats(); };
-$SIG{INT}  = sub { dump_stats(); _log(dump(\%proc)); %proc = (); %cmd = (); };
+$SIG{INT}  = sub { dump_stats(); _log(Dumper(\%proc)); %proc = (); %cmd = (); };
 
 while (1) {
     my $time = time;

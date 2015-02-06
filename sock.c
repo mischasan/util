@@ -28,47 +28,19 @@
 //XXX make the (sendfd) interface into the only interface?
 //XXX add writev-type interface.
 
-//XXX WIN32 equivalent...
-#include <errno.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <stdio.h>          // sprintf
-#include <string.h>
-#include <unistd.h>
-
-#include <sys/stat.h>
-#include <netdb.h>          // gethostbyname
-#include <netinet/in.h>     // sockaddr_in
-#include <netinet/tcp.h>    // TCP_NODELAY
-#include <arpa/inet.h>      // inet_ntop
-#include <sys/un.h>
-#include <sys/wait.h>
-#if __BSD_VISIBLE
-#   include <sys/socket.h>     // cmsghdr
-#endif
-
+#include "plat.h"
 #include "sock.h"
 
-#ifdef WIN32
-#   define FD_CLOEXEC   (-1)
-#   define F_GETFL      (-1)
-#   define F_SETFD      (-1)
-#   define F_SETFL      (-1)
-#   define IPPROTO_TCP  (-1)
-#   define O_NONBLOCK   (-1)
-#   define fcntl(a,b,c) (0)    /*!!*/
-#   define poll WSAPoll
-// Windows has no unistd.h:
-extern int unlink(const char *);
+#if !defined(WIN32)
 
-#else   // Linux, FreeBSD, Darwin ...
+#define INVALID_SOCKET  (-1)
 
 typedef struct { struct cmsghdr c; int fd; } FDCMSG;
 
 static const struct cmsghdr fdc_hdr = {
     sizeof(FDCMSG), SOL_SOCKET, SCM_RIGHTS
 };
-#endif
+#endif//!WIN32
 
 // Internal types
 typedef struct addrinfo     ADRINFO;
@@ -79,6 +51,7 @@ typedef struct sockaddr_un  UNADDR;
 typedef uint8_t             IP6ADDR[16];    //HAHA make this __m128?
 
 typedef union { IN4ADDR in4; IN6ADDR in6; } INxADDR;
+
 // Linux and FreeBSD put fields common to (IPv4,IPv6) at the same offsets:
 #define inx_family in4.sin_family
 #define inx_port   in4.sin_port
@@ -98,25 +71,48 @@ static int eclose(int fd)
 static inline int BIT(int u, int m, int op)
 { return op ? u | m : u & ~m; }
 
+//--------------|-------|-------------------------------------
+int
+host_ip(char const *host, int port, IPSTR ip)
+{
+    dyninit();
+    struct addrinfo *aip;
+	ADRINFO hint = { AI_NUMERICSERV, AF_UNSPEC, SOCK_STREAM, IPPROTO_TCP,
+                            /*addrlen*/0, /*addr*/0, /*canonname*/0, /*next*/0 };
+    char sport[7];
+
+    if (port > 0) sprintf(sport, "%hu", (uint16_t)port);
+    if (getaddrinfo(host, port > 0 ? sport : NULL, &hint, &aip))
+        return -1;
+
+    int fail = -!inet_ntop(aip->ai_family,
+                           aip->ai_family == AF_INET   
+                              ? (void*)&((IN4ADDR*)aip->ai_addr)->sin_addr
+                              : (void*)&((IN6ADDR*)aip->ai_addr)->sin6_addr,
+                           ip, sizeof(IPSTR));
+    freeaddrinfo(aip);
+    return fail;
+}
+
 int
 sock_bind(IPSTR const ip, int port)
 {
+    dyninit();
     INxADDR addr;
     int addrlen = ininit(&addr, ip, port);
     if (addrlen < 0)
         return -1;
 
-    dyninit();
     int fd = sockit(addr.inx_family);
     if (fd < 0)
         return -1;
-#   ifdef IPV6_V6ONLY
+    #ifdef IPV6_V6ONLY
     if (addr.inx_family == AF_INET6) {
         int     no = 0;
         if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &no, sizeof(no)))
             return eclose(fd);
     }
-#   endif
+    #endif
     //XXX support bindresvport(), i.e. ask for an arb port in 512..1023?
     return setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&fd, sizeof fd)
             || bind(fd, (SOADDR*)&addr, addrlen)
@@ -124,6 +120,7 @@ sock_bind(IPSTR const ip, int port)
          ? eclose(fd) : fd;
 }
 
+//WIN32 more than this for a server to accept a non-TCP connection (ConnectNamedPipe?).
 int
 sock_accept(int skt)
 {
@@ -131,9 +128,9 @@ sock_accept(int skt)
 
     int fd;
     do fd =
-#           if 0 && defined(linux) && defined(_GNU_SOURCE)
+           #if 0 && defined(linux) && defined(_GNU_SOURCE)
             has_accept4 ? accept4(skt, NULL, NULL, sock_cloexec) :
-#           endif
+           #endif
             accept(skt, NULL, NULL);
     while (fd < 0 && errno == EINTR);
 
@@ -144,6 +141,11 @@ sock_accept(int skt)
 int
 sock_create(char const *path)
 {
+    dyninit();
+#ifdef WIN32
+    //CreateNamedPipe...  http://msdn.microsoft.com/en-us/library/windows/desktop/aa365601%28v=vs.85%29.aspx
+    return INVALID_SOCKET;
+#else
     UNADDR sun;
     int fd, len = uninit(&sun, path);
     if (!len) return errno = EINVAL, -1;
@@ -154,11 +156,17 @@ sock_create(char const *path)
            || bind(fd, (SOADDR*)&sun, sizeof sun.sun_family + len)
            || listen(fd, 5)
          ? eclose(fd) : fd;
+#endif
 }
 
 int
 sock_open(char const *path)
 {
+    dyninit();
+#ifdef WIN32
+    // WaitNamedPipe, CreateFile 
+    return INVALID_SOCKET;
+#else
     struct stat st;
     UNADDR sun;
     int fd, ret, len = uninit(&sun, path);
@@ -171,13 +179,14 @@ sock_open(char const *path)
     while (ret < 0 && errno == EINTR);
 
     return ret < 0 && errno != EAGAIN ? eclose(fd) : fd;
+#endif
 }
 
 void
 sock_close(int skt)
 {
     // Darwin close_nocancel (libstdc++?) can throw an exception for an invalid argument.
-    if (skt < 0) return;
+    if (skt == INVALID_SOCKET) return;
 #ifdef WIN32
     closesocket(skt);
 #else
@@ -202,7 +211,7 @@ sock_connect(const char *host, int port, int nowait)
     int fd = sockit(aip->ai_family), ret = -1;
     if (fd >= 0
         && !(nowait && sock_setopt(fd, SOCK_NOWAIT, 1))
-        && !setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &fd, sizeof fd)) {
+        && !setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&fd, sizeof fd)) {
 
         do ret = connect(fd, aip->ai_addr, aip->ai_addrlen);
         while (ret < 0 && errno == EINTR);
@@ -216,6 +225,7 @@ sock_connect(const char *host, int port, int nowait)
 int
 sock_ready(int skt, int mode, int waitsecs)
 {
+    dyninit();
     int ret, err;
 #ifdef USE_POLL
     struct pollfd sockpoll = { skt, mode ? POLLOUT : POLLIN,  0 };
@@ -244,24 +254,66 @@ sock_ready(int skt, int mode, int waitsecs)
     return err && ret > 0 ? -2 : ret;
 }
 
+// sock_status: check the status of each of a list of sockets.
+// RETURNS
+//      -1 select failed 
+//       0 timeout
+//      >0 count of active sockets.
+int
+sock_status(int nsocks, int const sockv[], int statusv[], int waitsecs)
+{
+    dyninit();
+
+    if (nsocks <= 0) return nsocks;
+    int i, ret, maxfd = -1;
+
+    fd_set fds;
+    FD_ZERO(&fds);
+    for (i = 0; i < nsocks; ++i) {
+        FD_SET(sockv[i], &fds);
+        if (maxfd < sockv[i])  maxfd = sockv[i];
+    }
+
+    fd_set rfds, wfds, efds = fds;
+    do {
+        struct timeval to = { waitsecs, 0 }, *top = waitsecs == WAIT_FOREVER ? NULL : &to;
+        rfds = wfds = efds = fds;
+        errno = 0;
+        ret = select(maxfd + 1, &rfds, &wfds, &efds, top);
+    } while (ret < 0 && errno == EINTR);
+
+    if (ret > 0)
+        for (i = ret = 0; i <= maxfd; ++i)
+            ret += !!(statusv[i] = (FD_ISSET(i, &rfds) ? SOCK_CAN_RECV : 0)
+                                 | (FD_ISSET(i, &wfds) ? SOCK_CAN_SEND : 0)
+                                 | (FD_ISSET(i, &efds) ? SOCK_IN_ERROR : 0));
+
+    return ret;   
+}
+
+// TransactNamedPipe
 int
 sock_recv(int skt, char *buf, int size)
 {
+    dyninit();
     int ret;
-    do ret = recv(skt, buf, size, 0);
+    do errno = 0, ret = recv(skt, buf, size, 0);
     while (ret < 0 && errno == EINTR);
     return ret;
 }
 
+// TransactNamedPipe
 int
 sock_send(int skt, char const *buf, int size)
 {
+    dyninit();
     int ret;
     do ret = send(skt, buf, size, 0);
     while (ret < 0 && errno == EINTR);
     return ret;
 }
 
+#ifndef WIN32
 int
 sock_recvfd(int skt, int *pfd, char *buf, int size)
 {
@@ -273,7 +325,7 @@ sock_recvfd(int skt, int *pfd, char *buf, int size)
     struct iovec iov[2] = { {&x, sizeof x} , {buf, size} };
     struct msghdr msg = { 0, 0, iov, 1 + (buf && size), &ctl, sizeof ctl, 0 };
 
-    do ret = recvmsg(skt, &msg, cmsg_cloexec);
+    do errno = 0, ret = recvmsg(skt, &msg, cmsg_cloexec);
     while (ret < 0 && errno == EINTR);
 
     if (ret >= 0 && !cmsg_cloexec && fcntl(ctl.fd, F_SETFD, FD_CLOEXEC))
@@ -290,18 +342,19 @@ sock_recvfd(int skt, int *pfd, char *buf, int size)
 int
 sock_sendfd(int skt, int fd, char const *buf, int size)
 {
+    dyninit();
     char          x = 0;
     FDCMSG        ctl = { fdc_hdr, fd };
     struct iovec  iov[2] = { {&x, sizeof x}, {(void *) (intptr_t) buf, size} };
     struct msghdr msg = { 0, 0, iov, 1 + (buf && size), &ctl, sizeof ctl, 0 };
     int           ret;
 
-    do ret = sendmsg(skt, &msg, 0);
+    do errno = 0, ret = sendmsg(skt, &msg, 0);
     while (ret < 0 && errno == EINTR);
 
     return ret - sizeof(x) * (ret > 0);
 }
-
+#endif//!WIN32
 static struct { int lvl, opt; } opts[SOCK_OPTS] = {
 #ifdef TCP_KEEPALIVE
       { IPPROTO_TCP, TCP_KEEPALIVE }    //XXX BSD/Darwin only
@@ -322,6 +375,7 @@ static struct { int lvl, opt; } opts[SOCK_OPTS] = {
 int
 sock_getopt(int skt, SOCK_OPT opt)
 {
+    dyninit();
     int         ret, val;
     socklen_t   len;
 
@@ -344,6 +398,8 @@ sock_getopt(int skt, SOCK_OPT opt)
 int
 sock_setopt(int skt, SOCK_OPT opt, int val)
 {
+    dyninit();
+
     if (opt >= SOCK_OPTS) return errno = EINVAL, -1;
 #ifdef TCP_KEEPALIVE    // Darwin,FreeBSD
     if (opt == SOCK_KEEPALIVE && setsockopt(skt, SOL_SOCKET, SO_KEEPALIVE, (char const*)&val, sizeof val))
@@ -351,16 +407,16 @@ sock_setopt(int skt, SOCK_OPT opt, int val)
 #endif
 
     struct linger lng = { val > 0, val }; //XXX why winwarn?
-    return opt == SOCK_LINGER
-             ? setsockopt(skt, SOL_SOCKET, SO_LINGER, &lng, sizeof lng)
-           : opts[opt].lvl == F_GETFL
-             ? fcntl(skt, F_SETFL, BIT(fcntl(skt, F_GETFL, 0), opts[opt].opt, val))
-             : setsockopt(skt, opts[opt].lvl, opts[opt].opt, &val, sizeof val);
+    return opt == SOCK_LINGER      ? setsockopt(skt, SOL_SOCKET, SO_LINGER, &lng, sizeof lng)
+        : opts[opt].lvl == F_GETFL ? fcntl(skt, F_SETFL, BIT(fcntl(skt, F_GETFL, 0), opts[opt].opt, val))
+                                   : setsockopt(skt, opts[opt].lvl, opts[opt].opt, (char*)&val, sizeof val);
 }
 
 int
 sock_addr(int skt, IPSTR ip, int *pport, char *name, int size)
 {
+    dyninit();
+
     INxADDR sin;
     socklen_t len = sizeof(sin);
     if (0 > getsockname(skt, (SOADDR*)&sin, &len))
@@ -374,6 +430,8 @@ sock_addr(int skt, IPSTR ip, int *pport, char *name, int size)
 int
 sock_peer(int skt, IPSTR ip, int *pport, char *name, int size)
 {
+    dyninit();
+
     INxADDR sin;
     socklen_t len = sizeof(sin);
     if (0 > getpeername(skt, (SOADDR*)&sin, &len)) return -1;
@@ -388,6 +446,8 @@ sock_peer(int skt, IPSTR ip, int *pport, char *name, int size)
 int
 sock_dest(int skt, IPSTR ip, int *pport)
 {
+    dyninit();
+
     INxADDR sin;
     socklen_t len = sizeof sin;
     if (0 > getsockopt(skt, SOL_IP, SO_ORIGINAL_DST, (SOADDR*)&sin, &len))
@@ -397,24 +457,6 @@ sock_dest(int skt, IPSTR ip, int *pport)
     return 0;
 }
 #endif
-//--------------|-------|-------------------------------------
-int
-host_ip(char const *host, int port, IPSTR ip)
-{
-    ADRINFO *aip, hint = { AI_NUMERICSERV, AF_UNSPEC, SOCK_STREAM, IPPROTO_TCP,
-                            /*addrlen*/0, /*addr*/0, /*canonname*/0, /*next*/0 };
-
-    char sport[7];
-    if (port > 0) sprintf(sport, "%hu", (uint16_t)port);
-
-    return -(getaddrinfo(host, port > 0 ? sport : NULL, &hint, &aip) ||
-             !inet_ntop(aip->ai_family,
-                        aip->ai_family == AF_INET
-                            ? (void*)&((IN4ADDR*)aip->ai_addr)->sin_addr
-                            : (void*)&((IN6ADDR*)aip->ai_addr)->sin6_addr,
-                        ip, sizeof(IPSTR)));
-}
-
 //--------------|-------|-------------------------------------
 int
 udp_open(IPSTR const ip, int port)
@@ -436,6 +478,8 @@ udp_open(IPSTR const ip, int port)
 int
 udp_recv(int fd, char *buf, int size, IPSTR ip, int *port)
 {
+    dyninit();
+
     INxADDR     addr;
     socklen_t   addrlen = sizeof(addr);
     int         len;
@@ -449,6 +493,8 @@ udp_recv(int fd, char *buf, int size, IPSTR ip, int *port)
 int
 udp_send(int fd, char const *buf, int size, IPSTR const ip, int port)
 {
+    dyninit();
+
     INxADDR addr;
     int ret, addrlen = ininit(&addr, ip, port);
     do ret = sendto(fd, buf, size, /*flags*/0, (SOADDR const*) &addr, addrlen);
@@ -467,14 +513,18 @@ static void
 dyninit(void)
 {
     if (sock_cloexec == 1) {    // initial state, ie neither 0 nor SOCK_CLOEXEC
-#       ifdef SOCK_CLOEXEC
+#ifdef WIN32
+        WSADATA wsaData;
+        WSAStartup(WINSOCK_VERSION, &wsaData);
+#endif
+       #ifdef SOCK_CLOEXEC
         sock_cloexec = SOCK_CLOEXEC;    // Safely re-enter dyninit from sock_bind
         int fd = sock_bind("", 0);
         if (fd < 0) {
             sock_cloexec = 0;
             cmsg_cloexec = 0;
         } else {
-#           if defined(linux) && defined(_GNU_SOURCE)
+           #if defined(linux) && defined(_GNU_SOURCE)
             // Test whether glibc.accept4 really works:
             IN4ADDR sin;
             socklen_t len = sizeof(sin);
@@ -485,12 +535,12 @@ dyninit(void)
             has_accept4 = ret >= 0 && fcntl(ret, F_GETFD, 0) & FD_CLOEXEC;
             close(ret);
             close(con);
-#           endif
+           #endif
             close(fd);
         }
-#       else
+       #else
         sock_cloexec = 0;
-#       endif
+       #endif
     }
     errno = 0;
 }
@@ -518,9 +568,9 @@ uninit(UNADDR * uap, char const *path)
     if (len > (int) sizeof uap->sun_path) return 0;
 
     memset(uap, 0, sizeof(UNADDR));
-#   ifdef __FreeBSD__
+   #ifdef __FreeBSD__
     uap->sun_len = len;
-#   endif
+   #endif
     uap->sun_family = AF_UNIX;
     memcpy(uap->sun_path, path, len);
     return SUN_LEN(uap);
@@ -539,11 +589,11 @@ ininfo(INxADDR const*xp, IPSTR ip, int *pport)
 static int
 ininit(INxADDR *xp, IPSTR const ip, int port)
 {
-#   if defined(__FreeBSD__) || defined(__APPLE__)
-#       define SETLEN(x) (int)(xp->in4.sin_len = (x))
-#   else
-#       define SETLEN(x) (int)(x)
-#   endif
+   #if defined(__FreeBSD__) || defined(__APPLE__)
+       #define SETLEN(x) (int)(xp->in4.sin_len = (x))
+   #else
+       #define SETLEN(x) (int)(x)
+   #endif
     // We rely on INADDR_ANY == 0x00000000
     memset(xp, 0, sizeof(*xp));
     xp->inx_port   = (uint16_t)htons((uint16_t)port);
@@ -554,5 +604,5 @@ ininit(INxADDR *xp, IPSTR const ip, int port)
             : 1 == inet_pton(xp->inx_family = AF_INET6, ip, &xp->in6.sin6_addr)
             ? SETLEN(sizeof(IN6ADDR))
             : -1;
-#   undef SETLEN
+   #undef SETLEN
 }

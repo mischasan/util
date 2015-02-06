@@ -66,7 +66,8 @@ int sock_open(char const *path);
 int sock_peer(int skt, IPSTR ip, int *pport, char *name, int size);
 
 // Wait for (or test, if waitsecs=0) socket to be ready.
-//  mode=0:read,accept mode=1:write,connect
+//  mode=0:read,accept mode=1:write,connect,
+//  Returns: -2:skt error, -1:select error, 0:timeout 1:ready
 int sock_ready(int skt, int mode, int waitsecs);
 
 int sock_recv(int skt, char *buf, int size);
@@ -80,6 +81,14 @@ int sock_send(int skt, char const*buf, int size);
 int sock_sendfd(int skt, int fd, char const*buf, int size);
 
 int sock_setopt(int skt, SOCK_OPT, int val);
+
+// Test (input pending | output okay | error) status for a list of sockets.
+//  Each element of statusv[] is the OR of applicable enum values.
+//  Returns: same as sock_ready, except ret > 0 is the number of sockets
+//  with non-zero status.
+
+enum { SOCK_CAN_RECV = 1, SOCK_CAN_SEND = 2, SOCK_IN_ERROR = 4 };
+int sock_status(int nsocks, int const sockv[], int statusv[], int waitsecs);
 
 int udp_open(IPSTR const ip, int port);
 int udp_recv(int fd, char *buf, int size, IPSTR ip, int *port);

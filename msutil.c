@@ -366,6 +366,7 @@ fopenf(char const *mode, char const *fmt, ...)
     return  fp;
 }
 
+
 #if defined(linux)
 char const *
 getprogname(void)
@@ -385,6 +386,12 @@ getprogname(void)
     }
 
     return  progname;
+}
+#elif defined(AIX) || defined(hpux)
+char const*
+getprogname(void)
+{
+    return "<program>";
 }
 #endif
 

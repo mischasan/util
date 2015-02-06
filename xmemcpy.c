@@ -4,7 +4,7 @@
 #include <xmmintrin.h>
 #include <stdint.h>
 
-static inline void xmemcpy(char *dst, char const *src, int len);
+static inline char* xmemcpy(char *dst, char const *src, int len);
 
 #ifdef TEST
 #include <stdio.h>
@@ -43,7 +43,7 @@ main(int argc, char **argv)
 }
 #endif//TEST
 
-static void xmemcpy(char *dst, char const *src, int len)
+static char* xmemcpy(char *dst, char const *src, int len)
 {
     __m128i val;    // Without an intermediate var, MSVC generates no code (!?)
 

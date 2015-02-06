@@ -19,6 +19,7 @@
 //-------------------------------------------------------------------
 
 #if 0
+XXX add sock_status() test.
 XXX add test cases:
 - all async ops! (esp connect).
 - sock_create where name is in use (not removable)

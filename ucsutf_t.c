@@ -1,7 +1,9 @@
 #include "msutil.h"
 #include "tap.h"
 
-typedef struct { byte *ptr; uint len; } MEM;
+typedef uint8_t  byte;
+typedef uint32_t uint;
+typedef struct { byte *data; uint size; } MEM;
 
 int ucs2_to_utf8(MEM const*ucs2, MEM *utf8);
 int utf8_to_ucs2(MEM const*utf8, MEM *ucs2);
@@ -10,7 +12,7 @@ void Test(char const *name, uint8_t*utf, int utflen, uint8_t*ucs, int ucslen);
 void Dump(uint8_t*data, int leng);
 void MEMcat(MEM *dst, MEM *src);
 
-uint8_t utf_all[99], ucs_all[99];
+byte utf_all[99], ucs_all[99];
 MEM m_utf = { utf_all, 0 }, m_ucs = { ucs_all, 0 };
 
 int main(void)

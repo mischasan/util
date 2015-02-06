@@ -30,12 +30,12 @@ int main(int argc, char **argv)
 {
     if (argc == 1) usage("host... -- display getaddrinfo results");
 
-    struct addrinfo *gaip = NULL, *aip,
+    struct addrinfo crap, *gaip = NULL, *aip,
            hint = { AI_NUMERICSERV | AI_CANONNAME, AF_UNSPEC, SOCK_STREAM, IPPROTO_TCP,
                     /*addrlen*/0, /*addr*/0, /*canonname*/0, /*next*/0 };
 
     while (*++argv) {
-        gaip = 0;
+        gaip = &crap;
         int ret = getaddrinfo(*argv, 0, &hint, &gaip);
         if (ret)  {
             fprintf(stderr, "%s error:%d %s\n", *argv, ret, eainame[-ret]);
