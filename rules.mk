@@ -18,6 +18,7 @@ export LD_LIBRARY_PATH
 OS              = $(shell uname -s)
 PS4             = \# # Prefix for "sh -x" output.
 SHELL           = bash
+SPACE           = $~ # " "
 
 # Import from PREFIX, export to DESTDIR.
 PREFIX          ?= /usr/local
@@ -33,7 +34,7 @@ CC              = gcc
 # -O level > 2 makes gcc 4.2 go weird on MacOSX
 # For gcc 4.5+, use: -O3 -flto --- link-time optimization including inlining.
 
-CFLAGS.         = -O2
+CFLAGS.         = -O3
 CFLAGS.cover    = --coverage -DNDEBUG
 LDFLAGS.cover   = --coverage
 CFLAGS.debug    = -O0 -Wno-uninitialized
@@ -43,11 +44,11 @@ LDFLAGS.profile = -pg
 
 # PROFILE tests get stats on syscalls appended to their .pass files.
 #   Darwin spells strace "dtruss".
-exec.profile	= $(shell which dtruss strace) -cf
+exec.profile    = $(shell which dtruss strace) -cf
 
 #--- *.$(OS):
 #XXX HP-UX gcc 4.2.3 does not grok -fstack-protector. Sigh.
-CFLAGS.AIX      = -fstack-protector --param ssp-buffer-size=4
+#CFLAGS.AIX      = -fstack-protector --param ssp-buffer-size=4
 CFLAGS.Darwin   = $(CFLAGS.AIX)
 CFLAGS.HP-UX    = 
 CFLAGS.Linux    = $(CFLAGS.AIX)
@@ -70,9 +71,10 @@ CFLAGS          += -g -MMD -fPIC -fdiagnostics-show-option -fno-strict-aliasing
 CFLAGS          += -Wall         -Wextra -Wcast-align -Wcast-qual -Wformat=2 -Wformat-security -Wmissing-prototypes -Wnested-externs -Wpointer-arith                   -Wshadow -Wstrict-prototypes -Wunused -Wwrite-strings
 
 CFLAGS          += -Wno-attributes -Wno-cast-qual -Wno-unknown-pragmas -Wno-unused-parameter
-CFLAGS          += $(CFLAGS.$(BLD)) $(CFLAGS.$(OS)) $(CFLAGS.$(BLD).$(OS)) $(CFLAGS_)
+CFLAGS          += $(CFLAGS_) $(CFLAGS.$(BLD)) $(CFLAGS.$(OS)) $(CFLAGS.$(BLD).$(OS)) $(_CFLAGS)
 
-CPPFLAGS        += -I$(PREFIX)/include -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD)) $(CPPFLAGS.$(OS))
+#CPPFLAGS        += -I$(PREFIX)/include -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE $(CPPFLAGS.$(BLD)) $(CPPFLAGS.$(OS))
+CPPFLAGS        += -I$(PREFIX)/include -D_GNU_SOURCE $(CPPFLAGS.$(BLD)) $(CPPFLAGS.$(OS))
 CXXFLAGS        += $(filter-out -Wmissing-prototypes -Wnested-externs -Wstrict-prototypes, $(CFLAGS))
 
 LDFLAGS         += -L$(PREFIX)/lib $(LDFLAGS.$(BLD)) $(LDFLAGS.$(OS))
@@ -93,9 +95,8 @@ LDLIBS          += $(LDLIBS.$(OS)) -lstdc++
 # $(all) contains subproject names. It can be used in ACTIONS but not RULES,
 #   since it accumulates across every "include <submakefile>"
 # $(junkfiles) is how to get metachars (commas) through the $(addsuffix...) call.
-SPACE :=
-SPACE +=
-COMMA = ,
+SPACE := #
+COMMA := ,
 junkfiles       = {gmon.out,tags,*.[di],*.fail,*.gcda,*.gcno,*.gcov,*.prof}
 
 all             :;@echo "$@ done for BLD='$(BLD)'"
@@ -128,13 +129,13 @@ profile         : test      ;@for x in $($*.test:.pass=); do gprof -b $$x >$$x.p
 %.so            : %.a       ; $(CC) $(CFLAGS)  -o $@ -shared -Wl,-whole-archive $< $(LDLIBS) -Wl,-no-whole-archive
 %.a             :           ; [ $(words $^) -gt 0 ] && ar crs $@ $(filter %.o,$^)
 %.yy.c          : %.l       ; flex -o $@ $<
-%.tab.c 	: %.y       ; bison $<
+%.tab.c         : %.y       ; bison $<
 %/..            :           ;@mkdir -p $(@D)
 %               : %.gz      ; gunzip -c $^ >$@
 
 # Ensure that intermediate files (e.g. the foo.o caused by "foo : foo.c")
 #  are not auto-deleted --- causing a re-compile every second "make".
-.SECONDARY  	:
+.SECONDARY      :
 
 #---------------- Unix tools: should be converted into scripts.
 # defs - list gcc's builtin macros
@@ -144,10 +145,11 @@ defs            :;@$(CC) $(CPPFLAGS) -E -dM - </dev/null | cut -c8- | sort
 env             :;@($(foreach _,$(env),echo $_=$($_);):) | sort -u
 
 # sh - invoke a shell within the makefile's env:
-sh   		:;@PS1='$(PS1) [make] ' $(SHELL)
+sh              :;@PS1='$(PS1) [make] ' $(SHELL)
 
 # source - list files used and not built by the "make". Explicitly filters out "*.d" files.
-source          :;@$(MAKE) -nps all test cover profile | sed -n '/^. Not a target/{ n; /^[^ ]*\.d:/!{ /^[^.*][^ ]*:/s/:.*//p; }; }'
+#TODO: filter out .PHONY targets properly. /^install/d is a hack.
+source          :;@[ $(words $^) = 0 ] || ls $^; $(MAKE) -nps all test cover profile | sed -n '/^. Not a target/{ n; /^install/d; /^[^ ]*\.d:/!{ /^[^.*][^ ]*:/s/:.*//p; }; }' | sort -u
 
 # NOTE: "make tags" BEFORE "make all" is incomplete because *.h dependencies are only in *.d files.
 tags            :; ctags $(filter %.c %.cpp %.h, $(source))

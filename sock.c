@@ -76,6 +76,7 @@ int
 host_ip(char const *host, int port, IPSTR ip)
 {
     dyninit();
+
     struct addrinfo *aip;
 	ADRINFO hint = { AI_NUMERICSERV, AF_UNSPEC, SOCK_STREAM, IPPROTO_TCP,
                             /*addrlen*/0, /*addr*/0, /*canonname*/0, /*next*/0 };
@@ -98,6 +99,7 @@ int
 sock_bind(IPSTR const ip, int port)
 {
     dyninit();
+
     INxADDR addr;
     int addrlen = ininit(&addr, ip, port);
     if (addrlen < 0)
@@ -142,6 +144,7 @@ int
 sock_create(char const *path)
 {
     dyninit();
+
 #ifdef WIN32
     //CreateNamedPipe...  http://msdn.microsoft.com/en-us/library/windows/desktop/aa365601%28v=vs.85%29.aspx
     return INVALID_SOCKET;
@@ -163,6 +166,7 @@ int
 sock_open(char const *path)
 {
     dyninit();
+
 #ifdef WIN32
     // WaitNamedPipe, CreateFile 
     return INVALID_SOCKET;
@@ -175,7 +179,7 @@ sock_open(char const *path)
 
     if (0 > (fd = sockit(AF_UNIX))) return -1;
 
-    do ret = connect(fd, (SOADDR*)&sun, SUN_LEN(&sun));
+    do errno = 0, ret = connect(fd, (SOADDR*)&sun, SUN_LEN(&sun));
     while (ret < 0 && errno == EINTR);
 
     return ret < 0 && errno != EAGAIN ? eclose(fd) : fd;
@@ -198,6 +202,7 @@ int
 sock_connect(const char *host, int port, int nowait)
 {
     dyninit();
+
     char sport[7];
     sprintf(sport, "%hu", (uint16_t)port);
     ADRINFO *aip, hint = {
@@ -213,7 +218,7 @@ sock_connect(const char *host, int port, int nowait)
         && !(nowait && sock_setopt(fd, SOCK_NOWAIT, 1))
         && !setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&fd, sizeof fd)) {
 
-        do ret = connect(fd, aip->ai_addr, aip->ai_addrlen);
+        do errno = 0, ret = connect(fd, aip->ai_addr, aip->ai_addrlen);
         while (ret < 0 && errno == EINTR);
     }
 
@@ -226,11 +231,12 @@ int
 sock_ready(int skt, int mode, int waitsecs)
 {
     dyninit();
+
     int ret, err;
 #ifdef USE_POLL
     struct pollfd sockpoll = { skt, mode ? POLLOUT : POLLIN,  0 };
 
-    do ret = poll(&sockpoll, 1, waitsecs);
+    do errno = 0, ret = poll(&sockpoll, 1, waitsecs);
     while (ret < 0 && errno == EINTR);
 
     err = sockpoll.revents & POLLERR;
@@ -296,6 +302,7 @@ int
 sock_recv(int skt, char *buf, int size)
 {
     dyninit();
+
     int ret;
     do errno = 0, ret = recv(skt, buf, size, 0);
     while (ret < 0 && errno == EINTR);
@@ -307,8 +314,9 @@ int
 sock_send(int skt, char const *buf, int size)
 {
     dyninit();
+
     int ret;
-    do ret = send(skt, buf, size, 0);
+    do errno = 0, ret = send(skt, buf, size, 0);
     while (ret < 0 && errno == EINTR);
     return ret;
 }
@@ -343,6 +351,7 @@ int
 sock_sendfd(int skt, int fd, char const *buf, int size)
 {
     dyninit();
+
     char          x = 0;
     FDCMSG        ctl = { fdc_hdr, fd };
     struct iovec  iov[2] = { {&x, sizeof x}, {(void *) (intptr_t) buf, size} };
@@ -355,9 +364,10 @@ sock_sendfd(int skt, int fd, char const *buf, int size)
     return ret - sizeof(x) * (ret > 0);
 }
 #endif//!WIN32
+
 static struct { int lvl, opt; } opts[SOCK_OPTS] = {
 #ifdef TCP_KEEPALIVE
-      { IPPROTO_TCP, TCP_KEEPALIVE }    //XXX BSD/Darwin only
+      { IPPROTO_TCP, TCP_KEEPALIVE }    //XXX BSD/Darwin 
 #else
       { SOL_SOCKET,  SO_KEEPALIVE }     //XXX In Linux, this requires more calls to set the interval.
 #endif
@@ -376,6 +386,7 @@ int
 sock_getopt(int skt, SOCK_OPT opt)
 {
     dyninit();
+
     int         ret, val;
     socklen_t   len;
 
@@ -497,7 +508,7 @@ udp_send(int fd, char const *buf, int size, IPSTR const ip, int port)
 
     INxADDR addr;
     int ret, addrlen = ininit(&addr, ip, port);
-    do ret = sendto(fd, buf, size, /*flags*/0, (SOADDR const*) &addr, addrlen);
+    do errno = 0, ret = sendto(fd, buf, size, /*flags*/0, (SOADDR const*) &addr, addrlen);
     while (ret < 0 && errno == EINTR);
 
     return ret;

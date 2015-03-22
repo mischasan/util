@@ -549,7 +549,7 @@ static inline MEMREF STRREF(STR s)
 
 // rollhash_arg returns (256 ^ (leng - 1) mod ROLLHASH_MOD).
 //  Most efficient to compute this once then pass it to rollhash_step.
-//  Calling   rollhash_step(1, hash, data[i]*arg, data[i+leng])
+//  Calling rollhash_step(1, hash, data[i]*arg, data[i+leng])
 //  amounts to the same thing.
 
 static inline uint32_t rollhash_arg(uint32_t leng)
