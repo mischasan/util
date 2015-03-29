@@ -1,4 +1,8 @@
 -:[bs]ug  +:done  x:nope  ^:forwarded  #:note  ?:question
+Sun Mar 29 2015
+- Fix the test SCRIPTS so that they use ${util} for their binaries or something else. 
+    ${0#/*} does not work unless the test scripts are always invoked with a full bapth.
+
 Sun May  4 11:10:54 PDT 2014
 - [May 4] sock.c cleanup:
     - reduce the number of dyninit calls; just confusing

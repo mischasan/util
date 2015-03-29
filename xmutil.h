@@ -1,7 +1,3 @@
-#ifndef XMUTIL_H
-#define XMUTIL_H
-#include <xmmintrin.h>
-
 // xm_same(x,y)           -  16bit mask with bits set where bytes of two xmm values match.
 // xm_diff(x,y)           -  16bit mask with bits set where bytes of two xmm values differ.
 // xm_fill(b)             -  repeat (byte) x 16 as an xmm value.
@@ -17,7 +13,13 @@
 // xm_dbl(x,buf) - pair of doubles
 // xm_llx(x,buf) - pair of ints (hex)
 // xm_str(x,buf) - LSB-first "xx,xx,xx,..,xx-xx,xx,xx,..,xx"
+//
+// nzmask(byte[32])      - returns a 32-bit mask of the nonzero bytes in its argument.
+//--------------|---------------|---------------|-------------------
+#ifndef XMUTIL_H
+#define XMUTIL_H
 
+#include <xmmintrin.h>
 typedef __m128i XMM;
 
 #define xm_fill(c)    _mm_set1_epi8(c)
@@ -99,5 +101,19 @@ DO_7x7(0)       // 9..63 except 16,24, ...
     { return xm_##FWD##64(xm_b##FWD(x, 0##A##B), 0##C); }
 DO_7(1,0)       // 65..71
 DO_7x7(1)       // 73..127 except 80,88,...
+
+static inline unsigned
+nzmask(uint8_t const data[32])
+{
+#ifdef __SSE2__
+    //9 ops, no branches.
+    return ~( (_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(0+(__m128i const*)data), _mm_setzero_si128()))) |
+              (_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(1+(__m128i const*)data), _mm_setzero_si128())) << 16) );
+#else
+    uint i, ret = 0;
+    for (i = 0; i < 32; ++i) if (data[i]) ret |= 1 << i;
+    return ret;
+#endif
+}
 
 #endif//XMUTIL_H

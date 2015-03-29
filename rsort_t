@@ -1,6 +1,7 @@
 #!/bin/sh
+D=${0%/*}
 # Avoid edge case where input is all done in one insertion-sort!
-rsort_x /dev/stdin <<__HERE__
+$D/rsort_x /dev/stdin <<__HERE__
 one
 two
 three

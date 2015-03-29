@@ -1,2 +1,3 @@
 #!/bin/sh
-map_x $util/t/10k.hosts
+D=${0%/*}
+$D/map_x $D/t/10k.hosts
