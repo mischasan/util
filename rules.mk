@@ -11,7 +11,7 @@
 #YYY Simba Makefile_FLAGS.mak refers to ${DMFLAGS} and ${EVALFLAGS}
 
 ifndef RULES_MK
-RULES_MK = 1
+RULES_MK := 1
 
 export LD_LIBRARY_PATH
 # HP-UX gmake does not grok "!="
